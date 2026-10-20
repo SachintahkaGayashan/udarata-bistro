@@ -159,7 +159,7 @@ export default function RobotFace() {
 
 // ================= 🤖 ROBOT FACE / DISPLAY UI =================
   return (
-    <div className="w-screen h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-6 relative overflow-hidden select-none lg:rotate-0 rotate-90 origin-center">
+    <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-6 overflow-hidden select-none z-50">
       
       {/* Top Status Bar */}
       <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800/80 px-4 py-2.5 rounded-2xl backdrop-blur-md z-10">
