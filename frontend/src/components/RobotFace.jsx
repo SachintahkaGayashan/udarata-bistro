@@ -157,81 +157,80 @@ export default function RobotFace() {
     );
   }
 
-  // ================= 🤖 ROBOT FACE / LANDSCAPE DISPLAY UI =================
+  // ================= 🤖 PERFECT LANDSCAPE ROBOT FACE =================
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-slate-100 flex flex-row items-center justify-between p-6 overflow-hidden select-none z-50">
+    <div className="fixed inset-0 w-screen h-screen bg-slate-950 text-slate-100 flex items-center justify-between px-8 py-4 overflow-hidden select-none z-50">
       
-      {/* Left Side: Battery & Status */}
-      <div className="flex flex-col items-start justify-between h-full py-2">
-        <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-2xl backdrop-blur-md">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-bold text-slate-300 font-mono">AGV-01</span>
+      {/* 1. LEFT SIDE: AGV ID & Battery Status */}
+      <div className="flex flex-col justify-center gap-4">
+        <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-4 py-2.5 rounded-2xl backdrop-blur-md shadow-lg">
+          <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-sm font-bold text-slate-200 font-mono">AGV-01</span>
         </div>
 
-        <div className="flex flex-col gap-3 font-mono font-bold">
-          <div className="flex items-center gap-1.5 text-emerald-400 bg-slate-900/80 border border-slate-800 px-3 py-2 rounded-xl">
-            <Battery className="w-5 h-5" />
-            <span>{robotData.battery}%</span>
-          </div>
-          <button 
-            onClick={() => signOut(auth)} 
-            className="text-[10px] text-slate-500 hover:text-slate-300 underline text-left px-1"
-          >
-            Lock
-          </button>
+        <div className="flex items-center gap-2 text-emerald-400 bg-slate-900/90 border border-slate-800 px-4 py-2.5 rounded-2xl font-mono font-bold shadow-lg">
+          <Battery className="w-5 h-5" />
+          <span className="text-sm">{robotData.battery}%</span>
         </div>
+
+        <button 
+          onClick={() => signOut(auth)} 
+          className="text-xs text-slate-500 hover:text-slate-300 underline text-left px-1 font-mono"
+        >
+          Lock Session
+        </button>
       </div>
 
-      {/* Center: Robot Face Expression & Location */}
-      <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+      {/* 2. CENTER: Robot Face (Eyes & Table Location) */}
+      <div className="flex flex-col items-center justify-center space-y-6">
         
-        {/* Animated Robot Eyes (Landscape Horizontal Layout) */}
-        <div className="flex gap-10 items-center justify-center">
+        {/* Animated Robot Eyes (Horizontal Landscape) */}
+        <div className="flex gap-12 items-center justify-center">
           <motion.div 
             animate={{ scaleY: [1, 0.1, 1] }} 
             transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
-            className="w-14 h-24 bg-gradient-to-b from-emerald-400 to-teal-500 rounded-full shadow-[0_0_35px_rgba(52,211,153,0.6)]" 
+            className="w-16 h-28 bg-gradient-to-b from-emerald-400 to-teal-500 rounded-full shadow-[0_0_40px_rgba(52,211,153,0.7)]" 
           />
           <motion.div 
             animate={{ scaleY: [1, 0.1, 1] }} 
             transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
-            className="w-14 h-24 bg-gradient-to-b from-emerald-400 to-teal-500 rounded-full shadow-[0_0_35px_rgba(52,211,153,0.6)]" 
+            className="w-16 h-28 bg-gradient-to-b from-emerald-400 to-teal-500 rounded-full shadow-[0_0_40px_rgba(52,211,153,0.7)]" 
           />
         </div>
 
-        {/* Current Table Location Badge */}
-        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-4 py-1.5 rounded-xl text-emerald-400 font-mono font-black text-sm shadow-lg">
-          <MapPin className="w-4 h-4 animate-bounce" />
+        {/* Current Table Badge */}
+        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-5 py-2 rounded-2xl text-emerald-400 font-mono font-black text-base shadow-lg">
+          <MapPin className="w-5 h-5 animate-bounce" />
           <span>{robotData.assignedTable}</span>
         </div>
       </div>
 
-      {/* Right Side: Warning Message & Audio Trigger */}
-      <div className="flex flex-col items-end justify-between h-full py-2 max-w-xs w-full">
+      {/* 3. RIGHT SIDE: Notice Box & Audio Trigger */}
+      <div className="flex flex-col justify-center gap-4 max-w-xs w-full">
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl text-center w-full shadow-2xl space-y-1.5"
+          className="bg-slate-900/90 border border-slate-800 p-4 rounded-3xl text-center shadow-2xl space-y-2 backdrop-blur-md"
         >
-          <div className="flex items-center justify-center gap-1.5 text-amber-400 text-[10px] font-extrabold uppercase tracking-widest">
-            <AlertCircle className="w-3.5 h-3.5" />
+          <div className="flex items-center justify-center gap-1.5 text-amber-400 text-xs font-extrabold uppercase tracking-widest">
+            <AlertCircle className="w-4 h-4" />
             <span>Notice</span>
           </div>
-          <p className="text-sm font-extrabold text-white leading-snug">
+          <p className="text-base font-extrabold text-white leading-snug">
             "{robotData.message}"
           </p>
         </motion.div>
 
         <button
           onClick={() => speakMessage(robotData.message)}
-          className="w-full py-2.5 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-xl text-slate-300 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xl active:scale-95"
+          className="w-full py-3 bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xl active:scale-95"
         >
-          <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" /> Replay Voice
+          <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" /> Replay Voice Message
         </button>
       </div>
 
-      {/* Ambient Lighting */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />
+      {/* Ambient Lighting Background */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none" />
     </div>
   );
 }
