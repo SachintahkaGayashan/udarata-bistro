@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star } from 'lucide-react';
 import { getDatabase, ref, push, set, onValue } from 'firebase/database';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -10,16 +10,15 @@ const NAV = [
   { id: 'home', label: 'Home' },
   { id: 'menu', label: 'Menu' },
   { id: 'my-orders', label: 'Orders' },
+  { id: 'reviews', label: 'Reviews' },
   { id: 'about', label: 'About' },
   { id: 'contact', label: 'Contact' },
 ];
 
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80';
 
-// colours: yellow #f2b632 · brown #3a1a0b · red #d92b2b
 const PATTERN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90' viewBox='0 0 90 90' fill='none' stroke='%23e3a41c' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='14' cy='16' r='6'/%3E%3Cpath d='M58 12v14M52 12v8a6 6 0 0 0 12 0v-8'/%3E%3Cpath d='M20 60l10 10M30 60L20 70'/%3E%3Crect x='62' y='56' width='16' height='12' rx='4'/%3E%3Ccircle cx='46' cy='46' r='2'/%3E%3C/svg%3E")`;
 
-// ---- dietary tags: uses item.tags from Firebase (array or "a, b" string), plus a light guess from name/desc
 const getTags = (item) => {
   const raw = Array.isArray(item.tags) ? item.tags : typeof item.tags === 'string' ? item.tags.split(',') : [];
   const set = new Set(raw.map(t => String(t).trim().toLowerCase()).filter(Boolean));
@@ -35,8 +34,6 @@ const tagStyle = (tag) => {
   return 'bg-[#f2b632]/40 text-[#3a1a0b]';
 };
 
-// ---- order progress
-// Matches the admin flow: PENDING -> PREPARING -> READY -> CONFIRMED & DISPATCHED -> SERVED
 const STEPS = ['Received', 'Preparing', 'Ready', 'On the way', 'Served'];
 
 const getStage = (status) => {
@@ -48,12 +45,10 @@ const getStage = (status) => {
   return 0;
 };
 
-// an order keeps its table busy until it is served
 const isActiveOrder = (o) => !!o.status && !/COMPLETED|SERVED/.test(String(o.status).toUpperCase());
 
-const RECENT_MS = 3 * 60 * 60 * 1000; // customers only see their table's orders from the last 3 hours
+const RECENT_MS = 3 * 60 * 60 * 1000;
 
-// QR links look like /?table=Table%2003 (also accepts ?table=3)
 const getTableFromUrl = () => {
   try {
     const raw = new URLSearchParams(window.location.search).get('table');
@@ -118,7 +113,6 @@ const stagger = {
 
 export default function CustomerMenu() {
   const [cart, setCart] = useState([]);
-  // a table from the QR link wins and is locked; otherwise fall back to the saved choice
   const lockedTable = getTableFromUrl();
   const [tableName, setTableName] = useState(() => {
     if (lockedTable) {
@@ -132,15 +126,25 @@ export default function CustomerMenu() {
   const [loading, setLoading] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
+  const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
   const [showCart, setShowCart] = useState(false);
   const [search, setSearch] = useState('');
   const [activeTags, setActiveTags] = useState([]);
+  const [alertMessage, setAlertMessage] = useState('');
+
+  // Newsletter Form State
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterDob, setNewsletterDob] = useState('');
+
+  // Review Form State
+  const [reviewerName, setReviewerName] = useState('');
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewRating, setReviewRating] = useState(5);
 
   useEffect(() => {
     const db = getDatabase();
 
-    // Menu Listener
     const menuRef = ref(db, 'menu');
     const unsubMenu = onValue(menuRef, (snapshot) => {
       const data = snapshot.val();
@@ -152,7 +156,6 @@ export default function CustomerMenu() {
       }
     });
 
-    // Orders Listener
     const ordersRef = ref(db, 'orders');
     const unsubOrders = onValue(ordersRef, (snapshot) => {
       const data = snapshot.val();
@@ -164,13 +167,24 @@ export default function CustomerMenu() {
       }
     });
 
+    const reviewsRef = ref(db, 'reviews');
+    const unsubReviews = onValue(reviewsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const reviewsList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        setReviews(reviewsList.reverse());
+      } else {
+        setReviews([]);
+      }
+    });
+
     return () => {
       unsubMenu();
       unsubOrders();
+      unsubReviews();
     };
   }, []);
 
-  // close the cart drawer once an order goes through
   useEffect(() => {
     if (orderPlaced) setShowCart(false);
   }, [orderPlaced]);
@@ -241,11 +255,11 @@ export default function CustomerMenu() {
   const handleCheckout = async (e) => {
     e.preventDefault();
     if (!tableName) {
-      alert('لطفاً / Please select your table number from the menu cart before ordering!');
+      setAlertMessage('Please select your table number from the menu cart before ordering!');
       return;
     }
     if (cart.length === 0) {
-      alert('Your cart is empty. Please select items to order.');
+      setAlertMessage('Your cart is empty. Please select items to order.');
       return;
     }
 
@@ -254,7 +268,7 @@ export default function CustomerMenu() {
     );
 
     if (activeTableOrder) {
-      alert(`⚠️ ${tableName} is currently occupied with an active order (${activeTableOrder.status}). Please choose another table or wait until the current order completes.`);
+      setAlertMessage(`⚠️ ${tableName} is currently occupied with an active order (${activeTableOrder.status}). Please choose another table or wait until the current order completes.`);
       return;
     }
 
@@ -278,18 +292,68 @@ export default function CustomerMenu() {
       setTimeout(() => setOrderPlaced(false), 7000);
     } catch (err) {
       console.error('Order error:', err);
-      alert('Failed to place order. Please check your network connection.');
+      setAlertMessage('Failed to place order. Please check your network connection.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleNewsletterSubmit = async (e) => {
+    e.preventDefault();
+    if (!newsletterEmail) {
+      setAlertMessage('Please enter your email address.');
+      return;
+    }
+    try {
+      const db = getDatabase();
+      const newsletterRef = ref(db, 'newsletters');
+      await push(newsletterRef, {
+        email: newsletterEmail,
+        dob: newsletterDob || 'Not provided',
+        timestamp: Date.now()
+      });
+      setAlertMessage('Thank you for subscribing to our newsletter!');
+      setNewsletterEmail('');
+      setNewsletterDob('');
+    } catch (err) {
+      console.error(err);
+      setAlertMessage('Failed to subscribe. Please try again.');
+    }
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    if (!reviewerName || !reviewComment) {
+      setAlertMessage('Please enter your name and review comment.');
+      return;
+    }
+    try {
+      const db = getDatabase();
+      const reviewsRef = ref(db, 'reviews');
+      await push(reviewsRef, {
+        name: reviewerName,
+        comment: reviewComment,
+        rating: reviewRating,
+        timestamp: Date.now()
+      });
+      setAlertMessage('Thank you for your review!');
+      setReviewerName('');
+      setReviewComment('');
+      setReviewRating(5);
+    } catch (err) {
+      console.error(err);
+      setAlertMessage('Failed to submit review.');
+    }
+  };
+
   const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const qtyInCart = (id) => cart.find(i => i.id === id)?.qty || 0;
-  // customers only see their own table's recent orders
+  
   const visibleOrders = tableName
     ? allOrders.filter(o => o.tableName === tableName && Date.now() - Number(o.timestamp || 0) < RECENT_MS)
     : [];
+
+  const hasActiveOrderForTable = visibleOrders.some(o => isActiveOrder(o));
 
   const withImages = menuItems.filter(i => i.image);
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
@@ -667,24 +731,31 @@ export default function CustomerMenu() {
               <h2 className="f-slab text-3xl md:text-4xl mt-2">LIVE ORDERS</h2>
             </div>
             <div className="flex items-center gap-3">
-              <label className="f-cond uppercase tracking-widest text-xs">Table</label>
-              <select
-                value={tableName}
-                onChange={(e) => handleTableSelection(e.target.value)}
-                disabled={!!lockedTable}
-                className="bg-white border-2 border-[#3a1a0b]/25 px-3 py-1.5 text-sm focus:outline-none focus:border-[#3a1a0b] disabled:bg-[#faf3e3] disabled:opacity-80"
-              >
-                <option value="">Choose table</option>
-                {TABLES.map(tbl => (
-                  <option key={tbl} value={tbl}>{tbl}</option>
-                ))}
-              </select>
+              <span className="f-cond uppercase tracking-widest text-xs">Table</span>
+              
+              {hasActiveOrderForTable ? (
+                <div className="bg-white border-2 border-[#3a1a0b]/25 px-4 py-1.5 text-sm font-bold text-[#3a1a0b] min-w-[120px] text-center">
+                  {tableName}
+                </div>
+              ) : (
+                <select
+                  value={tableName}
+                  onChange={(e) => handleTableSelection(e.target.value)}
+                  className="bg-white border-2 border-[#3a1a0b]/25 px-3 py-1.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
+                >
+                  <option value="">Choose table</option>
+                  {TABLES.map(tbl => (
+                    <option key={tbl} value={tbl}>{tbl}</option>
+                  ))}
+                </select>
+              )}
+
             </div>
           </div>
 
           {visibleOrders.length === 0 ? (
             <p className="py-6 text-sm text-[#3a1a0b]/60 border-2 border-dashed border-[#3a1a0b]/20 text-center">
-              {tableName ? 'No recent orders for your table.' : 'Choose your table to see your orders.'}
+              {tableName ? 'No recent orders for your table. (You can change your table above if needed).' : 'Choose your table to see your orders.'}
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -730,6 +801,138 @@ export default function CustomerMenu() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* REVIEWS SECTION */}
+      <section id="reviews" className="scroll-mt-16 py-12 md:py-16 bg-[#f9f5ed]">
+        <div className={wrap}>
+          <div className="text-center mb-10">
+            <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Feedback</span>
+            <h2 className="f-slab text-3xl md:text-4xl mt-2">CUSTOMER REVIEWS</h2>
+            <p className="text-sm text-[#3a1a0b]/70 mt-1">Let us know about your dining experience.</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 items-start">
+            {/* Submit Review Form */}
+            <div className="bg-white p-6 md:p-8 border-t-8 border-[#3a1a0b] shadow-sm space-y-4">
+              <h3 className="f-slab text-2xl">Leave a Review</h3>
+              <form onSubmit={handleReviewSubmit} className="space-y-4">
+                <div>
+                  <label className="f-cond uppercase tracking-widest text-xs block mb-1">Your Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={reviewerName}
+                    onChange={(e) => setReviewerName(e.target.value)}
+                    placeholder="John Doe"
+                    className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
+                  />
+                </div>
+                <div>
+                  <label className="f-cond uppercase tracking-widest text-xs block mb-1">Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        type="button"
+                        key={star}
+                        onClick={() => setReviewRating(star)}
+                        className="focus:outline-none"
+                      >
+                        <Star
+                          className={`w-6 h-6 ${star <= reviewRating ? 'text-[#f2b632] fill-[#f2b632]' : 'text-gray-300'}`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="f-cond uppercase tracking-widest text-xs block mb-1">Your Comments</label>
+                  <textarea
+                    rows="3"
+                    required
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Delicious food and great service!"
+                    className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 f-cond uppercase tracking-widest text-sm bg-[#d92b2b] text-white hover:bg-[#b82020] transition-colors"
+                >
+                  Submit Review
+                </button>
+              </form>
+            </div>
+
+            {/* Display Reviews */}
+            <div className="space-y-4 max-h-[450px] overflow-y-auto pr-2">
+              <h3 className="f-slab text-2xl">What Others Say</h3>
+              {reviews.length === 0 ? (
+                <p className="text-sm text-[#3a1a0b]/60 py-6 text-center border-2 border-dashed border-[#3a1a0b]/20 bg-white">
+                  No reviews yet. Be the first to review!
+                </p>
+              ) : (
+                reviews.map((rev) => (
+                  <div key={rev.id} className="bg-white p-5 border-l-4 border-[#d92b2b] shadow-sm space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="f-cond uppercase font-bold text-base">{rev.name}</p>
+                        <p className="text-xs text-[#3a1a0b]/50">{new Date(rev.timestamp).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex">
+                        {[...Array(rev.rating || 5)].map((_, i) => (
+                          <Star key={i} className="w-4 h-4 text-[#f2b632] fill-[#f2b632]" />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sm text-[#3a1a0b]/80 italic">"{rev.comment}"</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* NEWSLETTER SECTION (Matching your image) */}
+      <section className="py-14 bg-[#f3ecdd] border-t border-[#3a1a0b]/10">
+        <div className="max-w-md mx-auto px-4 text-center space-y-6">
+          <div className="space-y-2">
+            <h2 className="f-slab text-4xl md:text-5xl text-[#d92b2b]">Our Newsletter</h2>
+            <p className="f-cond text-2xl md:text-3xl uppercase tracking-wider text-[#1a5c38]">JOIN TODAY..</p>
+            <p className="text-sm text-[#3a1a0b]/80 font-medium pt-2">
+              Sign-up to our newsletter to receive all our latest news and offers.
+            </p>
+          </div>
+
+          <form onSubmit={handleNewsletterSubmit} className="space-y-4 text-left">
+            <div>
+              <input
+                type="email"
+                required
+                value={newsletterEmail}
+                onChange={(e) => setNewsletterEmail(e.target.value)}
+                placeholder="Enter Email"
+                className="w-full bg-[#f7f2e8] border-2 border-[#1a5c38] px-4 py-3 text-sm text-[#3a1a0b] focus:outline-none placeholder-[#3a1a0b]/60"
+              />
+            </div>
+            <div>
+              <input
+                type="date"
+                value={newsletterDob}
+                onChange={(e) => setNewsletterDob(e.target.value)}
+                className="w-full bg-[#f7f2e8] border-2 border-[#1a5c38] px-4 py-3 text-sm text-[#3a1a0b] focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-[#d92b2b] text-white f-cond uppercase tracking-widest text-sm hover:bg-[#b82020] transition-colors"
+            >
+              SUBMIT
+            </button>
+          </form>
         </div>
       </section>
 
@@ -832,22 +1035,24 @@ export default function CustomerMenu() {
 
               <div className="px-5 py-4 space-y-1.5 border-b border-[#3a1a0b]/10">
                 <label className="f-cond uppercase tracking-widest text-xs">Your table</label>
-                <select
-                  value={tableName}
-                  onChange={(e) => handleTableSelection(e.target.value)}
-                  disabled={!!lockedTable}
-                  className="w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b] disabled:bg-[#faf3e3] disabled:opacity-80"
-                >
-                  <option value="">Choose your table</option>
-                  {TABLES.map(tbl => {
-                    const isOccupied = allOrders.some(o => o.tableName === tbl && isActiveOrder(o));
-                    return (
-                      <option key={tbl} value={tbl}>
-                        {tbl}{isOccupied ? ' (occupied)' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                
+                {hasActiveOrderForTable ? (
+                  <div className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm font-bold text-[#3a1a0b]">
+                    {tableName} (Locked - Active Order)
+                  </div>
+                ) : (
+                  <select
+                    value={tableName}
+                    onChange={(e) => handleTableSelection(e.target.value)}
+                    className="w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
+                  >
+                    <option value="">Choose your table</option>
+                    {TABLES.map(tbl => (
+                      <option key={tbl} value={tbl}>{tbl}</option>
+                    ))}
+                  </select>
+                )}
+
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -905,6 +1110,34 @@ export default function CustomerMenu() {
               </div>
             </motion.aside>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* CUSTOM ALERT MODAL */}
+      <AnimatePresence>
+        {alertMessage && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white border-t-8 border-[#d92b2b] max-w-sm w-full p-6 space-y-4 shadow-2xl rounded-lg text-center"
+            >
+              <div className="w-12 h-12 bg-[#d92b2b]/10 rounded-full flex items-center justify-center mx-auto text-[#d92b2b]">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="f-slab text-xl text-[#3a1a0b]">Notice</h3>
+              <p className="text-sm text-[#3a1a0b]/80 leading-relaxed font-medium">
+                {alertMessage}
+              </p>
+              <button
+                onClick={() => setAlertMessage('')}
+                className="w-full py-2.5 bg-[#3a1a0b] text-[#f2b632] f-cond uppercase tracking-widest text-xs hover:bg-[#2a1208] transition-colors"
+              >
+                OK
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

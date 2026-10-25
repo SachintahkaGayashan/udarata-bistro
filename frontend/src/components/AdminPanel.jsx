@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Shield, LogOut, Utensils, ClipboardList, Plus, Trash2, Edit3,
   CheckCircle, AlertTriangle, Scale, Lock, Mail, RefreshCw, X, Save,
-  Battery, MapPin, Navigation, Wifi, QrCode, Printer, ArrowRight
+  Battery, MapPin, Navigation, Wifi, QrCode, Printer, ArrowRight, AlertCircle as AlertIcon
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
@@ -13,13 +13,8 @@ const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Tab
 const TAG_OPTIONS = ['veg', 'spicy', 'popular'];
 const EMPTY_FOOD = { name: '', price: '', category: 'Mains', image: '', desc: '', tags: [], soldOut: false };
 
-// What the robot should be told when an order is dispatched.
-// Change ROBOT_DISPATCH_STATUS to whatever word your ESP8266 code expects.
 const ROBOT_DISPATCH_STATUS = 'DELIVERING';
 
-// ---- Order status flow ---------------------------------------------------
-// PENDING -> PREPARING -> READY -> CONFIRMED & DISPATCHED (robot leaves) -> SERVED
-// "CONFIRMED & DISPATCHED" is kept exactly as before so robot code that looks for CONFIRMED still works.
 const STAGE_LABELS = ['Pending', 'Preparing', 'Ready', 'On the way', 'Served'];
 
 const NEXT_ACTION = [
@@ -53,7 +48,6 @@ const normalizeTags = (tags) => {
   return [];
 };
 
-// shared look
 const inp = 'w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]';
 const lbl = 'f-cond uppercase tracking-widest text-xs block mb-1';
 const btnRed = 'f-cond uppercase tracking-widest text-xs px-5 py-3 bg-[#d92b2b] text-white hover:bg-[#b82020] transition-colors';
@@ -78,16 +72,14 @@ export default function AdminPanel() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'menu', 'robot', or 'qr'
+  const [activeTab, setActiveTab] = useState('orders');
 
-  // Data states
   const [orders, setOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [robotWeight, setRobotWeight] = useState(0);
   const [showServed, setShowServed] = useState(false);
-  const WEIGHT_LIMIT = 200; // Minimum weight threshold in grams to dispatch the robot
+  const WEIGHT_LIMIT = 200;
 
-  // Robot Telemetry Detailed State
   const [robotStatusData, setRobotStatusData] = useState({
     battery: 0,
     assignedTable: 'None',
@@ -96,13 +88,12 @@ export default function AdminPanel() {
     status: 'IDLE'
   });
 
-  // Modal states for Food Add/Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingFood, setEditingFood] = useState(null);
   const [foodForm, setFoodForm] = useState(EMPTY_FOOD);
   const [customTag, setCustomTag] = useState('');
+  const [alertMessage, setAlertMessage] = useState(''); // Custom Alert Modal State
 
-  // Monitor Authentication State
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -111,11 +102,9 @@ export default function AdminPanel() {
     return () => unsubscribe();
   }, [auth]);
 
-  // Fetch Orders, Menu, and Robot Telemetry in Real-time
   useEffect(() => {
     if (!user) return;
 
-    // 1. Listen to Orders
     const ordersRef = ref(db, 'orders');
     const unsubscribeOrders = onValue(ordersRef, (snapshot) => {
       const data = snapshot.val();
@@ -127,7 +116,6 @@ export default function AdminPanel() {
       }
     });
 
-    // 2. Listen to Menu Items
     const menuRef = ref(db, 'menu');
     const unsubscribeMenu = onValue(menuRef, (snapshot) => {
       const data = snapshot.val();
@@ -139,14 +127,12 @@ export default function AdminPanel() {
       }
     });
 
-    // 3. Listen to Robot Weight Sensor Telemetry
     const weightRef = ref(db, 'robotStatus/currentWeight');
     const unsubscribeWeight = onValue(weightRef, (snapshot) => {
       const weight = snapshot.val();
       setRobotWeight(weight !== null ? Number(weight) : 0);
     });
 
-    // 4. Listen to Full Robot Status Node (Battery, Location, Roadblock, etc.)
     const robotStatusRef = ref(db, 'robotStatus');
     const unsubscribeRobotStatus = onValue(robotStatusRef, (snapshot) => {
       const data = snapshot.val();
@@ -167,9 +153,8 @@ export default function AdminPanel() {
       unsubscribeWeight();
       unsubscribeRobotStatus();
     };
-  }, [user, db]);
+  }, [user]);
 
-  // Handle Secure Admin Login
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -181,7 +166,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Handle Admin Logout
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -190,7 +174,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Move an order to its next status (and send the robot when dispatching)
   const handleAdvanceOrder = async (order) => {
     const stage = getStage(order.status);
     const action = NEXT_ACTION[stage];
@@ -198,14 +181,12 @@ export default function AdminPanel() {
 
     const isDispatch = action.status === 'CONFIRMED & DISPATCHED';
 
-    // Weight rule only applies at the moment the robot is dispatched
     if (isDispatch && robotWeight < WEIGHT_LIMIT) {
-      alert(`⚠️ Cannot dispatch! Robot weight sensor reads ${robotWeight}g. Please place the food package onto the robot container first (Required min: ${WEIGHT_LIMIT}g).`);
+      setAlertMessage(`⚠️ Cannot dispatch! Robot weight sensor reads ${robotWeight}g. Please place the food package onto the robot container first (Required min: ${WEIGHT_LIMIT}g).`);
       return;
     }
 
     try {
-      // one atomic write: order status + (on dispatch) the robot's destination
       const updates = { [`orders/${order.id}/status`]: action.status };
       if (isDispatch) {
         updates['robotStatus/assignedTable'] = order.tableName;
@@ -215,31 +196,29 @@ export default function AdminPanel() {
       await update(ref(db), updates);
     } catch (err) {
       console.error(err);
-      alert('Failed to update order status.');
+      setAlertMessage('Failed to update order status.');
     }
   };
 
-  // Delete Order Function
   const handleDeleteOrder = async (orderId) => {
     if (window.confirm('Are you sure you want to delete this order?')) {
       try {
         await remove(ref(db, `orders/${orderId}`));
       } catch (err) {
         console.error(err);
-        alert('Failed to delete order.');
+        setAlertMessage('Failed to delete order.');
       }
     }
   };
 
-  // Save or Update Food Item
   const handleSaveFood = async (e) => {
     e.preventDefault();
     if (!foodForm.name || !foodForm.price) {
-      alert('Please fill out name and price.');
+      setAlertMessage('Please fill out name and price.');
       return;
     }
 
-    const { id, ...payload } = foodForm; // never write the id back into the record
+    const { id, ...payload } = foodForm;
     payload.tags = normalizeTags(payload.tags);
     payload.soldOut = !!payload.soldOut;
 
@@ -256,28 +235,26 @@ export default function AdminPanel() {
       setCustomTag('');
     } catch (err) {
       console.error(err);
-      alert('Failed to save food item.');
+      setAlertMessage('Failed to save food item.');
     }
   };
 
-  // Toggle "Sold out" straight from the menu card
   const handleToggleSoldOut = async (item) => {
     try {
       await update(ref(db, `menu/${item.id}`), { soldOut: !item.soldOut });
     } catch (err) {
       console.error(err);
-      alert('Failed to update item.');
+      setAlertMessage('Failed to update item.');
     }
   };
 
-  // Delete Food Item
   const handleDeleteFood = async (id) => {
     if (window.confirm('Are you sure you want to delete this menu item?')) {
       try {
         await remove(ref(db, `menu/${id}`));
       } catch (err) {
         console.error(err);
-        alert('Failed to delete item.');
+        setAlertMessage('Failed to delete item.');
       }
     }
   };
@@ -289,7 +266,6 @@ export default function AdminPanel() {
     });
   };
 
-  // Add a brand-new tag typed by the admin
   const addCustomTag = () => {
     const t = customTag.trim().toLowerCase().replace(/[^a-z0-9\- ]/g, '').replace(/\s+/g, ' ').slice(0, 20);
     if (!t) return;
@@ -300,7 +276,6 @@ export default function AdminPanel() {
     setCustomTag('');
   };
 
-  // preset tags + any tag already used on the menu + tags on this form
   const allTagOptions = [...new Set([
     ...TAG_OPTIONS,
     ...menuItems.flatMap(i => normalizeTags(i.tags)),
@@ -316,7 +291,6 @@ export default function AdminPanel() {
     );
   }
 
-  // ================= SECURE LOGIN SCREEN =================
   if (!user) {
     return (
       <div className="min-h-screen bg-[#f2b632] text-[#3a1a0b] f-body flex items-center justify-center p-4">
@@ -386,12 +360,10 @@ export default function AdminPanel() {
       : 'border-[#3a1a0b]/25 hover:border-[#3a1a0b]'
   }`;
 
-  // ================= ADMIN DASHBOARD =================
   return (
     <div className="min-h-screen bg-[#f3ecdd] text-[#3a1a0b] f-body print:bg-white">
       <Fonts />
 
-      {/* Top Navbar */}
       <header className="bg-[#3a1a0b] text-white sticky top-0 z-40 print:hidden">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -421,10 +393,8 @@ export default function AdminPanel() {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
 
-        {/* Navigation Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 print:hidden">
           <button onClick={() => setActiveTab('orders')} className={tabClass('orders')}>
             <ClipboardList className="w-4 h-4" /> Live orders ({activeOrders.length})
@@ -440,7 +410,6 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        {/* ================= TAB 1: LIVE ORDERS ================= */}
         {activeTab === 'orders' && (
           <div className="space-y-5">
             <div className="bg-[#f2b632]/30 border border-[#f2b632] px-4 py-3 flex items-center justify-between flex-wrap gap-3">
@@ -552,7 +521,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ================= TAB 2: ROBOT ================= */}
         {activeTab === 'robot' && (
           <div className="space-y-5">
             <div className="flex items-end justify-between flex-wrap gap-3">
@@ -609,7 +577,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ================= TAB 3: MANAGE FOODS ================= */}
         {activeTab === 'menu' && (
           <div className="space-y-5">
             <div className="flex justify-between items-center flex-wrap gap-3">
@@ -677,7 +644,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ================= TAB 4: TABLE QR CODES ================= */}
         {activeTab === 'qr' && (
           <div className="space-y-5">
             <div className="flex justify-between items-end flex-wrap gap-3 print:hidden">
@@ -706,9 +672,6 @@ export default function AdminPanel() {
                 );
               })}
             </div>
-            <p className="text-xs text-[#3a1a0b]/60 print:hidden">
-              Print these only after the site is on its final address. The images come from the free api.qrserver.com service; to avoid an outside service, install the <span className="font-mono">qrcode.react</span> package.
-            </p>
           </div>
         )}
 
@@ -850,6 +813,34 @@ export default function AdminPanel() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CUSTOM ALERT MODAL */}
+      <AnimatePresence>
+        {alertMessage && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white border-t-8 border-[#d92b2b] max-w-sm w-full p-6 space-y-4 shadow-2xl rounded-lg text-center"
+            >
+              <div className="w-12 h-12 bg-[#d92b2b]/10 rounded-full flex items-center justify-center mx-auto text-[#d92b2b]">
+                <AlertIcon className="w-6 h-6" />
+              </div>
+              <h3 className="f-slab text-xl text-[#3a1a0b]">Notice</h3>
+              <p className="text-sm text-[#3a1a0b]/80 leading-relaxed font-medium">
+                {alertMessage}
+              </p>
+              <button
+                onClick={() => setAlertMessage('')}
+                className="w-full py-2.5 bg-[#3a1a0b] text-[#f2b632] f-cond uppercase tracking-widest text-xs hover:bg-[#2a1208] transition-colors"
+              >
+                OK
+              </button>
             </motion.div>
           </div>
         )}
