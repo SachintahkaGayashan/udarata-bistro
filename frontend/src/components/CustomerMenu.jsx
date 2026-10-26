@@ -2,6 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star } from 'lucide-react';
 import { getDatabase, ref, push, set, onValue } from 'firebase/database';
 import { motion, AnimatePresence } from 'framer-motion';
+import emailjs from '@emailjs/browser';
+
+// ---- Auto-reply email (EmailJS) ------------------------------------------
+// Fill these three values from your EmailJS dashboard (emailjs.com).
+// While they still say YOUR_..., sign-ups are saved but no email is sent.
+const EMAILJS = {
+  serviceId: 'service_cp5huxt',
+  templateId: 'template_4i4o0km',
+  publicKey: 'WuIBvxtfI0z6rdMRI',
+  // second EmailJS template, used for order receipts
+  receiptTemplateId: 'template_gkixd3o',
+};
+const emailConfigured = ['serviceId', 'templateId', 'publicKey'].every(k => !EMAILJS[k].startsWith('YOUR_'));
+const receiptConfigured = ['serviceId', 'receiptTemplateId', 'publicKey'].every(k => !EMAILJS[k].startsWith('YOUR_'));
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const CATEGORIES = ['All', 'Mains', 'Appetizers', 'Beverages'];
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
@@ -19,13 +34,11 @@ const FALLBACK_IMG = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?
 
 const PATTERN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90' viewBox='0 0 90 90' fill='none' stroke='%23e3a41c' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='14' cy='16' r='6'/%3E%3Cpath d='M58 12v14M52 12v8a6 6 0 0 0 12 0v-8'/%3E%3Cpath d='M20 60l10 10M30 60L20 70'/%3E%3Crect x='62' y='56' width='16' height='12' rx='4'/%3E%3Ccircle cx='46' cy='46' r='2'/%3E%3C/svg%3E")`;
 
+// Tags come only from what the admin saved on the dish (no guessing from the text),
+// so removing a tag in the admin panel really removes it here.
 const getTags = (item) => {
   const raw = Array.isArray(item.tags) ? item.tags : typeof item.tags === 'string' ? item.tags.split(',') : [];
-  const set = new Set(raw.map(t => String(t).trim().toLowerCase()).filter(Boolean));
-  const text = `${item.name || ''} ${item.desc || ''}`.toLowerCase();
-  if (/\bveg(etable|etarian|an)?\b/.test(text) && !/chicken|fish|egg|beef|pork|mutton|prawn|seafood|meat/.test(text)) set.add('veg');
-  if (/spicy|chil+i|devil+ed|fiery/.test(text)) set.add('spicy');
-  return [...set];
+  return [...new Set(raw.map(t => String(t).trim().toLowerCase()).filter(Boolean))];
 };
 
 const tagStyle = (tag) => {
@@ -136,6 +149,14 @@ export default function CustomerMenu() {
   // Newsletter Form State
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterDob, setNewsletterDob] = useState('');
+  const [subscribing, setSubscribing] = useState(false);
+
+  // Receipt email step (asked after "Place order")
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [receiptEmail, setReceiptEmail] = useState('');
+  const [receiptError, setReceiptError] = useState('');
+  const [receiptSentTo, setReceiptSentTo] = useState('');
+  const [receiptFailed, setReceiptFailed] = useState(false);
 
   // Review Form State
   const [reviewerName, setReviewerName] = useState('');
@@ -252,7 +273,8 @@ export default function CustomerMenu() {
     return cart.reduce((sum, item) => sum + (Number(item.price) * item.qty), 0);
   };
 
-  const handleCheckout = async (e) => {
+  // Step 1: check the order is valid, then ask for an email for the receipt
+  const handleCheckout = (e) => {
     e.preventDefault();
     if (!tableName) {
       setAlertMessage('Please select your table number from the menu cart before ordering!');
@@ -272,26 +294,78 @@ export default function CustomerMenu() {
       return;
     }
 
+    setReceiptError('');
+    setShowReceipt(true);
+  };
+
+  // Step 2: place the order; if an email was given, send the receipt.
+  // The email is only used for this one message and is never saved to the database.
+  const placeOrder = async (email) => {
+    const to = (email || '').trim();
+    if (to && !EMAIL_RE.test(to)) {
+      setReceiptError('That email address does not look right.');
+      return;
+    }
+    if (loading) return;
+
     setLoading(true);
     try {
       const db = getDatabase();
-      const ordersRef = ref(db, 'orders');
-      const newOrderRef = push(ordersRef);
+      const newOrderRef = push(ref(db, 'orders'));
+      const items = cart;
+      const total = calculateTotal();
+      const timestamp = Date.now();
 
       await set(newOrderRef, {
         tableName: tableName,
-        items: cart,
-        total: calculateTotal(),
+        items,
+        total,
         status: 'PENDING',
         paymentMethod: 'Pay at Counter',
-        timestamp: Date.now()
+        timestamp
       });
 
+      setShowReceipt(false);
+      setReceiptEmail('');
+      setReceiptSentTo('');
+      setReceiptFailed(false);
       setOrderPlaced(true);
       setCart([]);
-      setTimeout(() => setOrderPlaced(false), 7000);
+      setTimeout(() => setOrderPlaced(false), 9000);
+
+      if (to && receiptConfigured) {
+        const when = new Date(timestamp);
+        const itemsText = items
+          .map(it => `${it.qty} x ${it.name}  -  LKR ${Number(it.price) * it.qty}${it.note ? `\n    Note: ${it.note}` : ''}`)
+          .join('\n');
+        try {
+          await emailjs.send(
+            EMAILJS.serviceId,
+            EMAILJS.receiptTemplateId,
+            {
+              to_email: to,
+              restaurant_name: 'Udarata Bistro',
+              order_no: String(newOrderRef.key || '').slice(-6).toUpperCase(),
+              table_name: tableName,
+              order_date: when.toLocaleDateString('en-GB'),
+              order_time: when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              items_text: itemsText,
+              total: `LKR ${total}`,
+              payment: 'Pay at the counter',
+            },
+            { publicKey: EMAILJS.publicKey }
+          );
+          setReceiptSentTo(to);
+        } catch (mailErr) {
+          console.error('Receipt email error:', mailErr);
+          setReceiptFailed(true);
+        }
+      } else if (to) {
+        setReceiptFailed(true);
+      }
     } catch (err) {
       console.error('Order error:', err);
+      setShowReceipt(false);
       setAlertMessage('Failed to place order. Please check your network connection.');
     } finally {
       setLoading(false);
@@ -304,20 +378,46 @@ export default function CustomerMenu() {
       setAlertMessage('Please enter your email address.');
       return;
     }
+    if (subscribing) return;
+    setSubscribing(true);
+    const email = newsletterEmail.trim();
     try {
       const db = getDatabase();
       const newsletterRef = ref(db, 'newsletters');
       await push(newsletterRef, {
-        email: newsletterEmail,
+        email,
         dob: newsletterDob || 'Not provided',
         timestamp: Date.now()
       });
-      setAlertMessage('Thank you for subscribing to our newsletter!');
+
+      // send the auto-reply; a failure here must not undo the sign-up
+      let mailSent = false;
+      if (emailConfigured) {
+        try {
+          await emailjs.send(
+            EMAILJS.serviceId,
+            EMAILJS.templateId,
+            { to_email: email, restaurant_name: 'Udarata Bistro' },
+            { publicKey: EMAILJS.publicKey }
+          );
+          mailSent = true;
+        } catch (mailErr) {
+          console.error('Auto-reply email failed:', mailErr);
+        }
+      }
+
+      setAlertMessage(
+        mailSent
+          ? 'Thank you for subscribing! We have sent a confirmation email to your inbox.'
+          : 'Thank you for subscribing to our newsletter!'
+      );
       setNewsletterEmail('');
       setNewsletterDob('');
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to subscribe. Please try again.');
+    } finally {
+      setSubscribing(false);
     }
   };
 
@@ -331,9 +431,9 @@ export default function CustomerMenu() {
       const db = getDatabase();
       const reviewsRef = ref(db, 'reviews');
       await push(reviewsRef, {
-        name: reviewerName,
-        comment: reviewComment,
-        rating: reviewRating,
+        name: reviewerName.trim().slice(0, 40),
+        comment: reviewComment.trim().slice(0, 500),
+        rating: Math.min(5, Math.max(1, Number(reviewRating) || 5)),
         timestamp: Date.now()
       });
       setAlertMessage('Thank you for your review!');
@@ -354,6 +454,9 @@ export default function CustomerMenu() {
     : [];
 
   const hasActiveOrderForTable = visibleOrders.some(o => isActiveOrder(o));
+  // the table is fixed when it came from a QR code, or while this table has an order in progress
+  const tableLocked = !!lockedTable || hasActiveOrderForTable;
+  const tableLockReason = lockedTable ? 'QR code' : 'active order';
 
   const withImages = menuItems.filter(i => i.image);
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
@@ -442,12 +545,12 @@ export default function CustomerMenu() {
       </motion.header>
 
       {/* MOBILE BOTTOM NAVIGATION */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#3a1a0b] z-40 px-2 py-3 flex justify-around">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#3a1a0b] z-40 px-3 py-3 flex justify-between">
         {NAV.map(tab => (
           <button
             key={tab.id}
             onClick={() => scrollToSection(tab.id)}
-            className={`f-cond text-xs uppercase tracking-widest px-2 ${
+            className={`f-cond text-[11px] uppercase tracking-wider ${
               activeTab === tab.id ? 'text-[#f2b632]' : 'text-white/70'
             }`}
           >
@@ -467,7 +570,11 @@ export default function CustomerMenu() {
           >
             <div className={`${wrap} py-3 flex items-center gap-3 text-sm`}>
               <Check className="w-4 h-4 flex-shrink-0" />
-              <span>Order sent for <strong>{tableName}</strong>. Follow it under Orders.</span>
+              <span>
+                Order sent for <strong>{tableName}</strong>. Follow it under Orders.
+                {receiptSentTo && <> Receipt emailed to <strong>{receiptSentTo}</strong>.</>}
+                {receiptFailed && <> We could not send the receipt email, but your order is in.</>}
+              </span>
             </div>
           </motion.div>
         )}
@@ -733,7 +840,7 @@ export default function CustomerMenu() {
             <div className="flex items-center gap-3">
               <span className="f-cond uppercase tracking-widest text-xs">Table</span>
               
-              {hasActiveOrderForTable ? (
+              {tableLocked ? (
                 <div className="bg-white border-2 border-[#3a1a0b]/25 px-4 py-1.5 text-sm font-bold text-[#3a1a0b] min-w-[120px] text-center">
                   {tableName}
                 </div>
@@ -755,7 +862,9 @@ export default function CustomerMenu() {
 
           {visibleOrders.length === 0 ? (
             <p className="py-6 text-sm text-[#3a1a0b]/60 border-2 border-dashed border-[#3a1a0b]/20 text-center">
-              {tableName ? 'No recent orders for your table. (You can change your table above if needed).' : 'Choose your table to see your orders.'}
+              {tableName
+                ? `No recent orders for your table.${tableLocked ? '' : ' (You can change your table above if needed.)'}`
+                : 'Choose your table to see your orders.'}
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -824,6 +933,7 @@ export default function CustomerMenu() {
                     type="text"
                     required
                     value={reviewerName}
+                    maxLength={40}
                     onChange={(e) => setReviewerName(e.target.value)}
                     placeholder="John Doe"
                     className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
@@ -852,6 +962,7 @@ export default function CustomerMenu() {
                     rows="3"
                     required
                     value={reviewComment}
+                    maxLength={500}
                     onChange={(e) => setReviewComment(e.target.value)}
                     placeholder="Delicious food and great service!"
                     className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
@@ -882,7 +993,7 @@ export default function CustomerMenu() {
                         <p className="text-xs text-[#3a1a0b]/50">{new Date(rev.timestamp).toLocaleDateString()}</p>
                       </div>
                       <div className="flex">
-                        {[...Array(rev.rating || 5)].map((_, i) => (
+                        {[...Array(Math.min(5, Math.max(1, Math.round(Number(rev.rating)) || 5)))].map((_, i) => (
                           <Star key={i} className="w-4 h-4 text-[#f2b632] fill-[#f2b632]" />
                         ))}
                       </div>
@@ -928,9 +1039,10 @@ export default function CustomerMenu() {
             </div>
             <button
               type="submit"
-              className="w-full py-3.5 bg-[#d92b2b] text-white f-cond uppercase tracking-widest text-sm hover:bg-[#b82020] transition-colors"
+              disabled={subscribing}
+              className="w-full py-3.5 bg-[#d92b2b] text-white f-cond uppercase tracking-widest text-sm hover:bg-[#b82020] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              SUBMIT
+              {subscribing ? 'SENDING…' : 'SUBMIT'}
             </button>
           </form>
         </div>
@@ -1036,9 +1148,9 @@ export default function CustomerMenu() {
               <div className="px-5 py-4 space-y-1.5 border-b border-[#3a1a0b]/10">
                 <label className="f-cond uppercase tracking-widest text-xs">Your table</label>
                 
-                {hasActiveOrderForTable ? (
+                {tableLocked ? (
                   <div className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm font-bold text-[#3a1a0b]">
-                    {tableName} (Locked - Active Order)
+                    {tableName} (locked · {tableLockReason})
                   </div>
                 ) : (
                   <select
@@ -1047,9 +1159,14 @@ export default function CustomerMenu() {
                     className="w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
                   >
                     <option value="">Choose your table</option>
-                    {TABLES.map(tbl => (
-                      <option key={tbl} value={tbl}>{tbl}</option>
-                    ))}
+                    {TABLES.map(tbl => {
+                      const isOccupied = allOrders.some(o => o.tableName === tbl && isActiveOrder(o));
+                      return (
+                        <option key={tbl} value={tbl}>
+                          {tbl}{isOccupied ? ' (occupied)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 )}
 
@@ -1110,6 +1227,70 @@ export default function CustomerMenu() {
               </div>
             </motion.aside>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* RECEIPT EMAIL STEP */}
+      <AnimatePresence>
+        {showReceipt && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.form
+              onSubmit={(e) => { e.preventDefault(); placeOrder(receiptEmail); }}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border-t-8 border-[#f2b632] max-w-sm w-full p-6 space-y-4 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="f-slab text-2xl">WANT A RECEIPT?</h3>
+                  <p className="text-sm text-[#3a1a0b]/70 mt-1">
+                    Enter your email and we will send the receipt for {tableName}. We only use it for this one email and do not store it.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowReceipt(false)} aria-label="Close" className="p-1 -mr-1 hover:bg-[#3a1a0b]/10">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="bg-[#faf3e3] px-4 py-3 flex items-baseline justify-between">
+                <span className="f-cond uppercase tracking-widest text-xs">{cart.reduce((n, it) => n + it.qty, 0)} items</span>
+                <span className="f-slab text-xl text-[#d92b2b]">LKR {calculateTotal()}</span>
+              </div>
+
+              <div>
+                <input
+                  type="email"
+                  autoFocus
+                  inputMode="email"
+                  autoComplete="email"
+                  value={receiptEmail}
+                  onChange={(e) => { setReceiptEmail(e.target.value); setReceiptError(''); }}
+                  placeholder="you@example.com"
+                  className="w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
+                />
+                {receiptError && <p className="text-xs text-[#d92b2b] mt-1.5">{receiptError}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="submit"
+                  disabled={loading || !receiptEmail.trim()}
+                  className="w-full py-3.5 f-cond uppercase tracking-widest text-sm bg-[#d92b2b] text-white hover:bg-[#b82020] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? 'Sending…' : 'Place order & email receipt'}
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => placeOrder('')}
+                  className="w-full py-3 f-cond uppercase tracking-widest text-xs border-2 border-[#3a1a0b]/30 hover:border-[#3a1a0b] disabled:opacity-40 transition-colors"
+                >
+                  Place order without receipt
+                </button>
+              </div>
+            </motion.form>
+          </div>
         )}
       </AnimatePresence>
 
