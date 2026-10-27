@@ -11,7 +11,6 @@ const EMAILJS = {
   serviceId: 'service_cp5huxt',
   templateId: 'template_4i4o0km',
   publicKey: 'WuIBvxtfI0z6rdMRI',
-  // second EmailJS template, used for order receipts
   receiptTemplateId: 'template_gkixd3o',
 };
 const emailConfigured = ['serviceId', 'templateId', 'publicKey'].every(k => !EMAILJS[k].startsWith('YOUR_'));
@@ -499,9 +498,7 @@ export default function CustomerMenu() {
       >
         <div className={`${wrap} h-16 flex items-center justify-between`}>
           <button onClick={() => scrollToSection('home')} className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-full bg-[#3a1a0b] flex items-center justify-center">
-              <Utensils className="w-4 h-4 text-[#f2b632]" />
-            </span>
+            <img src="/logo.png" alt="Udarata Bistro logo" className="w-11 h-11 object-contain" />
             <span className="f-cond text-xl font-semibold uppercase tracking-wide leading-none">
               Udarata Bistro
             </span>
@@ -1083,6 +1080,7 @@ export default function CustomerMenu() {
       <footer id="contact" className="scroll-mt-16 bg-[#3a1a0b] text-white">
         <div className={`${wrap} py-10 grid grid-cols-1 md:grid-cols-4 gap-8`}>
           <div>
+            <img src="/logo.png" alt="Udarata Bistro" className="w-24 h-24 object-contain mb-3" />
             <p className="f-slab text-2xl text-[#f2b632]">FIND US</p>
             <p className="text-sm text-white/70 mt-2">Udarata Bistro, Kandy</p>
           </div>

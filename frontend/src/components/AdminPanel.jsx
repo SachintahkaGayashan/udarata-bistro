@@ -1028,9 +1028,7 @@ export default function AdminPanel() {
           className="bg-white border-t-8 border-[#3a1a0b] p-8 max-w-md w-full space-y-6 shadow-2xl"
         >
           <div className="space-y-2">
-            <div className="w-11 h-11 rounded-full bg-[#3a1a0b] flex items-center justify-center text-[#f2b632]">
-              <Shield className="w-5 h-5" />
-            </div>
+            <img src="/logo.png" alt="Udarata Bistro logo" className="w-20 h-20 object-contain" />
             <h1 className="f-slab text-3xl">ADMIN LOGIN</h1>
             <p className="text-sm text-[#3a1a0b]/70">Udarata Bistro kitchen &amp; staff panel</p>
           </div>
@@ -1128,9 +1126,7 @@ export default function AdminPanel() {
       <header className="bg-[#3a1a0b] text-white sticky top-0 z-40 print:hidden">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#f2b632] flex items-center justify-center text-[#3a1a0b]">
-              <Shield className="w-4 h-4" />
-            </div>
+            <img src="/logo.png" alt="Udarata Bistro logo" className="w-10 h-10 object-contain" />
             <div className="leading-tight">
               <h1 className="f-cond uppercase tracking-wide text-lg font-semibold text-[#f2b632]">Kitchen &amp; Admin</h1>
               <p className="text-[11px] text-white/60">{user.email}</p>
