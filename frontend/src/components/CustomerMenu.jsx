@@ -142,6 +142,8 @@ export default function CustomerMenu() {
   const [loading, setLoading] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [trackOnly, setTrackOnly] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
   const [showCart, setShowCart] = useState(false);
@@ -182,6 +184,7 @@ export default function CustomerMenu() {
 
     const ordersRef = ref(db, 'orders');
     const unsubOrders = onValue(ordersRef, (snapshot) => {
+      setOrdersLoaded(true);
       const data = snapshot.val();
       if (data) {
         const ordersList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
@@ -343,6 +346,7 @@ export default function CustomerMenu() {
       setReceiptEmail('');
       setReceiptSentTo('');
       setReceiptFailed(false);
+      setTrackOnly(true); // the customer who just ordered keeps the page; only newcomers see the 'booked' screen
       setOrderPlaced(true);
       setCart([]);
       setTimeout(() => setOrderPlaced(false), 9000);
@@ -492,6 +496,51 @@ export default function CustomerMenu() {
   };
 
   const wrap = 'max-w-6xl mx-auto px-4 md:px-6';
+
+  // Scanning the QR code of a table that already has an order in progress:
+  // show a full-screen "already booked" message instead of the menu.
+  const gateStyle = { backgroundImage: PATTERN };
+  if (lockedTable && !ordersLoaded) {
+    return (
+      <div className="min-h-screen bg-[#f2b632] flex items-center justify-center f-body text-[#3a1a0b]" style={gateStyle}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap'); .f-slab{font-family:'Alfa Slab One',Georgia,serif;font-weight:400}.f-cond{font-family:'Oswald','Arial Narrow',sans-serif}.f-body{font-family:'Montserrat',system-ui,sans-serif}`}</style>
+        <p className="f-cond uppercase tracking-widest text-sm">Checking {lockedTable}…</p>
+      </div>
+    );
+  }
+  if (lockedTable && tableBusy && !trackOnly) {
+    const freeTables = TABLES.filter(t => !allOrders.some(o => o.tableName === t && isLiveOrder(o)));
+    return (
+      <div className="min-h-screen bg-[#f2b632] flex items-center justify-center p-5 f-body text-[#3a1a0b]" style={gateStyle}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap'); .f-slab{font-family:'Alfa Slab One',Georgia,serif;font-weight:400}.f-cond{font-family:'Oswald','Arial Narrow',sans-serif}.f-body{font-family:'Montserrat',system-ui,sans-serif}`}</style>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white border-t-8 border-[#d92b2b] shadow-2xl max-w-sm w-full p-7 text-center space-y-4"
+        >
+          <img src="/logo.png" alt="Udarata Bistro" className="w-24 h-24 object-contain mx-auto" />
+          <div>
+            <p className="f-cond uppercase tracking-widest text-xs text-[#3a1a0b]/60">{tableName}</p>
+            <h1 className="f-slab text-3xl text-[#d92b2b] leading-tight mt-1">ALREADY BOOKED</h1>
+          </div>
+          <p className="text-sm leading-relaxed text-[#3a1a0b]/80">
+            This table already has an order in progress, so it can't take a new order right now. It opens again once the current order has been served.
+          </p>
+          <p className="text-sm leading-relaxed text-[#3a1a0b]/80">
+            {freeTables.length > 0
+              ? <>Free tables: <strong>{freeTables.join(', ')}</strong>. Please scan the QR code on one of those, or ask our staff.</>
+              : <>All tables are busy at the moment. Please ask our staff.</>}
+          </p>
+          <button
+            onClick={() => setTrackOnly(true)}
+            className="w-full py-3 f-cond uppercase tracking-widest text-xs border-2 border-[#3a1a0b]/30 hover:border-[#3a1a0b] transition-colors"
+          >
+            This is my table: follow my order
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white text-[#3a1a0b] f-body scroll-smooth">
