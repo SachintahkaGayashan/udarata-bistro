@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star, Lock } from 'lucide-react';
 import { getDatabase, ref, push, set, onValue } from 'firebase/database';
 import { motion, AnimatePresence } from 'framer-motion';
 import emailjs from '@emailjs/browser';
@@ -60,6 +60,10 @@ const getStage = (status) => {
 const isActiveOrder = (o) => !!o.status && !/COMPLETED|SERVED/.test(String(o.status).toUpperCase());
 
 const RECENT_MS = 3 * 60 * 60 * 1000;
+// An unfinished order only blocks its table for this long, so one forgotten order
+// (never marked served) cannot keep a table locked for days.
+const ACTIVE_MAX_MS = 12 * 60 * 60 * 1000;
+const isLiveOrder = (o) => isActiveOrder(o) && Date.now() - Number(o.timestamp || 0) < ACTIVE_MAX_MS;
 
 const getTableFromUrl = () => {
   try {
@@ -245,6 +249,10 @@ export default function CustomerMenu() {
 
   const addToCart = (item) => {
     if (item.soldOut) return;
+    if (tableBusy) {
+      setAlertMessage(`${tableName} already has an order in progress. You can order again once it has been served.`);
+      return;
+    }
     setCart(prev => {
       const existing = prev.find(i => i.id === item.id);
       if (existing) {
@@ -285,7 +293,7 @@ export default function CustomerMenu() {
     }
 
     const activeTableOrder = allOrders.find(
-      order => order.tableName === tableName && isActiveOrder(order)
+      order => order.tableName === tableName && isLiveOrder(order)
     );
 
     if (activeTableOrder) {
@@ -306,6 +314,13 @@ export default function CustomerMenu() {
       return;
     }
     if (loading) return;
+
+    // last check: someone may have ordered for this table while the receipt box was open
+    if (allOrders.some(o => o.tableName === tableName && isLiveOrder(o))) {
+      setShowReceipt(false);
+      setAlertMessage(`${tableName} was just taken by another order. Please wait until it is served.`);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -448,11 +463,15 @@ export default function CustomerMenu() {
   const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const qtyInCart = (id) => cart.find(i => i.id === id)?.qty || 0;
   
+  // the order that currently holds this table (if any): the table is busy until it is served
+  const activeOrderForTable = tableName ? allOrders.find(o => o.tableName === tableName && isLiveOrder(o)) : null;
+  const tableBusy = !!activeOrderForTable;
+
   const visibleOrders = tableName
-    ? allOrders.filter(o => o.tableName === tableName && Date.now() - Number(o.timestamp || 0) < RECENT_MS)
+    ? allOrders.filter(o => o.tableName === tableName && (isLiveOrder(o) || Date.now() - Number(o.timestamp || 0) < RECENT_MS))
     : [];
 
-  const hasActiveOrderForTable = visibleOrders.some(o => isActiveOrder(o));
+  const hasActiveOrderForTable = tableBusy;
   // the table is fixed when it came from a QR code, or while this table has an order in progress
   const tableLocked = !!lockedTable || hasActiveOrderForTable;
   const tableLockReason = lockedTable ? 'QR code' : 'active order';
@@ -555,6 +574,39 @@ export default function CustomerMenu() {
           </button>
         ))}
       </div>
+
+      {/* TABLE BUSY BANNER: the table's QR code stays locked until its order is served */}
+      <AnimatePresence>
+        {tableBusy && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="bg-[#3a1a0b] text-white"
+          >
+            <div className={`${wrap} py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm`}>
+              <Lock className="w-4 h-4 flex-shrink-0 text-[#f2b632]" />
+              <span className="flex-1 min-w-[220px]">
+                <strong>{tableName}</strong> is in use ({activeOrderForTable.status || 'PENDING'}). New orders for this table open again once the current order is served.
+              </span>
+              <button
+                onClick={() => scrollToSection('my-orders')}
+                className="f-cond uppercase tracking-widest text-xs underline text-[#f2b632]"
+              >
+                Follow order
+              </button>
+              {!lockedTable && (
+                <button
+                  onClick={() => handleTableSelection('')}
+                  className="f-cond uppercase tracking-widest text-xs underline text-white/80"
+                >
+                  Use another table
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* SUCCESS BANNER */}
       <AnimatePresence>
@@ -812,10 +864,10 @@ export default function CustomerMenu() {
                         whileHover={{ scale: 1.06 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={() => addToCart(item)}
-                        disabled={!!item.soldOut}
+                        disabled={!!item.soldOut || tableBusy}
                         className="f-cond uppercase tracking-widest text-xs mt-3 px-6 py-2.5 bg-[#d92b2b] text-white hover:bg-[#b82020] transition-colors disabled:bg-[#3a1a0b]/30 disabled:cursor-not-allowed"
                       >
-                        {item.soldOut ? 'Sold out' : 'Order now'}
+                        {item.soldOut ? 'Sold out' : tableBusy ? 'Table in use' : 'Order now'}
                       </motion.button>
                     )}
                   </motion.div>
@@ -1158,9 +1210,9 @@ export default function CustomerMenu() {
                   >
                     <option value="">Choose your table</option>
                     {TABLES.map(tbl => {
-                      const isOccupied = allOrders.some(o => o.tableName === tbl && isActiveOrder(o));
+                      const isOccupied = allOrders.some(o => o.tableName === tbl && isLiveOrder(o));
                       return (
-                        <option key={tbl} value={tbl}>
+                        <option key={tbl} value={tbl} disabled={isOccupied}>
                           {tbl}{isOccupied ? ' (occupied)' : ''}
                         </option>
                       );
@@ -1215,13 +1267,15 @@ export default function CustomerMenu() {
                   <span className="f-slab text-2xl text-[#d92b2b]">LKR {calculateTotal()}</span>
                 </div>
                 <button
-                  disabled={loading || cart.length === 0}
+                  disabled={loading || cart.length === 0 || tableBusy}
                   onClick={handleCheckout}
                   className="w-full py-3.5 f-cond uppercase tracking-widest text-sm bg-[#d92b2b] text-white hover:bg-[#b82020] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? 'Sending…' : 'Place order'}
+                  {loading ? 'Sending…' : tableBusy ? 'Table in use' : 'Place order'}
                 </button>
-                <p className="text-xs text-[#3a1a0b]/60 text-center">Pay at the counter.</p>
+                <p className="text-xs text-[#3a1a0b]/60 text-center">
+                  {tableBusy ? 'This table has an order in progress.' : 'Pay at the counter.'}
+                </p>
               </div>
             </motion.aside>
           </>
