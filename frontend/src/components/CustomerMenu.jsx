@@ -65,9 +65,11 @@ const RECENT_MS = 3 * 60 * 60 * 1000;
 const ACTIVE_MAX_MS = 12 * 60 * 60 * 1000;
 const isLiveOrder = (o) => isActiveOrder(o) && Date.now() - Number(o.timestamp || 0) < ACTIVE_MAX_MS;
 
+// Works with the short link (/table01) and the older /?table=Table 01 link
 const getTableFromUrl = () => {
   try {
-    const raw = new URLSearchParams(window.location.search).get('table');
+    const fromPath = window.location.pathname.match(/^\/table[\s\-_]*0*(\d+)\/?$/i);
+    const raw = fromPath ? fromPath[1] : new URLSearchParams(window.location.search).get('table');
     if (!raw) return '';
     const n = parseInt(String(raw).replace(/\D/g, ''), 10);
     return TABLES.find(t => parseInt(t.replace(/\D/g, ''), 10) === n) || '';

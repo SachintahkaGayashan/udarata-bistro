@@ -1600,7 +1600,7 @@ export default function AdminPanel() {
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
               {TABLES.map(table => {
-                const link = `${window.location.origin}/?table=${encodeURIComponent(table)}`;
+                const link = `${window.location.origin}/${table.toLowerCase().replace(/\s+/g, '')}`; // e.g. /table01
                 const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=${encodeURIComponent(link)}`;
                 return (
                   <div key={table} className="bg-white border-2 border-[#3a1a0b] p-5 text-center space-y-3 break-inside-avoid">
