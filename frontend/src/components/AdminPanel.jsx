@@ -85,11 +85,11 @@ const daysAgoStart = (n) => {
 };
 const itemsSummary = (o) => (o.items || []).map(it => `${it.qty}× ${it.name}`).join(', ');
 
-// cells starting with = + - @ are prefixed so spreadsheets don't run them as formulas
+// cells starting with = + - @ tab or CR are prefixed so spreadsheets don't run them as formulas
 const downloadCsv = (filename, rows) => {
   const cell = (v) => {
     let s = String(v ?? '');
-    if (/^[=+\-@]/.test(s)) s = `'${s}`;
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return `"${s.replace(/"/g, '""')}"`;
   };
   const csv = rows.map(r => r.map(cell).join(',')).join('\n');
@@ -732,6 +732,7 @@ function HistoryTab({ orders, onDelete }) {
 
 export default function AdminPanel() {
   const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false); // true only when the account has the `admin` custom claim
   const [authLoading, setAuthLoading] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -766,16 +767,29 @@ export default function AdminPanel() {
   const [reviews, setReviews] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
 
+  // Auth state + admin claim check
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        try {
+          const tokenResult = await currentUser.getIdTokenResult(true); // force refresh so new claims are picked up
+          setIsAdmin(tokenResult.claims.admin === true);
+        } catch (err) {
+          console.error(err);
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
       setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, [auth]);
+  }, []);
 
+  // Data listeners: only for admins
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isAdmin) return;
 
     const ordersRef = ref(db, 'orders');
     const unsubscribeOrders = onValue(ordersRef, (snapshot) => {
@@ -839,7 +853,7 @@ export default function AdminPanel() {
       unsubscribeReviews();
       unsubscribeNewsletters();
     };
-  }, [user]);
+  }, [user, isAdmin]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -967,23 +981,12 @@ export default function AdminPanel() {
     }
   };
 
-  // Download subscribers as a CSV file (cells starting with = + - @ are prefixed so spreadsheets don't run them as formulas)
+  // Download subscribers as a CSV file (uses the shared helper, which also neutralises formula characters)
   const downloadSubscribers = () => {
-    const cell = (v) => {
-      let s = String(v ?? '');
-      if (/^[=+\-@]/.test(s)) s = `'${s}`;
-      return `"${s.replace(/"/g, '""')}"`;
-    };
     const rows = [['Email', 'Date of birth', 'Signed up']].concat(
       subscribers.map(s => [s.email, s.dob, s.timestamp ? new Date(s.timestamp).toLocaleString() : ''])
     );
-    const csv = rows.map(r => r.map(cell).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'newsletter-subscribers.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv('newsletter-subscribers.csv', rows);
   };
 
   const toggleFoodTag = (tag) => {
@@ -1073,6 +1076,23 @@ export default function AdminPanel() {
             <button type="submit" className={`${btnRed} w-full`}>Log in</button>
           </form>
         </motion.div>
+      </div>
+    );
+  }
+
+  // Logged in, but the account has no admin claim
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#f3ecdd] text-[#3a1a0b] f-body flex items-center justify-center p-4">
+        <Fonts />
+        <div className="bg-white border-t-8 border-[#d92b2b] p-8 max-w-sm w-full text-center space-y-4 shadow-xl">
+          <Shield className="w-10 h-10 mx-auto text-[#d92b2b]" />
+          <h1 className="f-slab text-2xl">ACCESS DENIED</h1>
+          <p className="text-sm text-[#3a1a0b]/80">
+            This account does not have admin access. Please log in with an admin account.
+          </p>
+          <button onClick={handleLogout} className={`${btnBrown} w-full`}>Logout</button>
+        </div>
       </div>
     );
   }

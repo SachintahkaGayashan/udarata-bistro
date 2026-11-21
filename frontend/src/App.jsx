@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'rea
 import CustomerMenu from './components/CustomerMenu';
 import AdminPanel from './components/AdminPanel';
 import RobotFace from './components/RobotFace';
+import RobotControl from './components/RobotControl';
+
 
 // /table01 ... /table06 open the menu with that table already chosen.
 // Anything else that is not a known page goes back to the home page.
@@ -26,6 +28,8 @@ export default function App() {
 
         {/* Robot Face / Smartphone Audio-Visual Display View */}
         <Route path="/robot-face" element={<RobotFace />} />
+        
+        <Route path="/robot-control" element={<RobotControl />} />
       </Routes>
     </Router>
   );
