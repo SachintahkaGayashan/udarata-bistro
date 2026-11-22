@@ -2,10 +2,8 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 
-// ඔබේ Firebase Console එකෙන් ලබාගත් අදාළ credentials මෙතැනට දමන්න
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyDaIDuVITYpH0pzkqaiDaFHORy70YqDFGM",
   authDomain: "test-5b6ed.firebaseapp.com",
@@ -17,8 +15,20 @@ const firebaseConfig = {
   measurementId: "G-Y5L1Z63Y5B"
 };
 
-// Firebase App එක Initialize කිරීම
 const app = initializeApp(firebaseConfig);
+
+// App Check: auth / database භාවිතයට පෙර initialize කළ යුතුයි
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+if (siteKey) {
+  if (import.meta.env.DEV) {
+    // localhost: console හි debug token එකක් print වේ
+    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(siteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 
 export const auth = getAuth(app);
 export const db = getDatabase(app);
