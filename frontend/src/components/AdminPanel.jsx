@@ -96,7 +96,9 @@ const checkOrder = (o, menuItems) => {
   }
   items.forEach(it => {
     const m = menuItems.find(x => x.id === it.id);
-    if (m && Number(m.price) !== Number(it.price)) {
+    // a price that was changed in the admin panel AFTER the order was placed is not a problem
+    const changedLater = Number(m?.priceUpdatedAt) > orderTime(o);
+    if (m && !changedLater && Number(m.price) !== Number(it.price)) {
       issues.push(`${it.name}: ordered at ${fmtMoney(it.price)}, menu price is ${fmtMoney(m.price)}`);
     }
   });
@@ -945,6 +947,10 @@ export default function AdminPanel() {
     const { id, ...payload } = foodForm;
     payload.tags = normalizeTags(payload.tags);
     payload.soldOut = !!payload.soldOut;
+    // remember when the price last changed, so orders placed before that are not flagged as mismatches
+    if (!editingFood || Number(editingFood.price) !== Number(payload.price)) {
+      payload.priceUpdatedAt = Date.now();
+    }
 
     try {
       if (editingFood) {
