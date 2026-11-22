@@ -1,5 +1,8 @@
-node_modules/
-dist/
-build/
-.env
-backend/serviceAccountKey.json
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.log
+**/node_modules/
+**/serviceAccountKey.json
+**/firebase.json

@@ -2,14 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getDatabase, ServerValue } = require('firebase-admin/database');
 const serviceAccount = require('./serviceAccountKey.json');
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+initializeApp({
+  credential: cert(serviceAccount),
   databaseURL: 'https://test-5b6ed-default-rtdb.firebaseio.com',
 });
-const db = admin.database();
+const db = getDatabase();
 
 const app = express();
 app.disable('x-powered-by');
@@ -33,7 +35,7 @@ async function requireAdmin(req, res, next) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Missing token' });
   try {
-    const decoded = await admin.auth().verifyIdToken(token, true); // true = revoked tokens ප්‍රතික්ෂේප කරයි
+    const decoded = await getAuth().verifyIdToken(token, true); // true = revoked tokens ප්‍රතික්ෂේප කරයි
     if (decoded.admin !== true) return res.status(403).json({ error: 'Admins only' });
     req.user = decoded;
     next();
@@ -53,7 +55,7 @@ app.post('/api/robot/command', requireAdmin, async (req, res) => {
   try {
     await db.ref('robot').update({
       command,
-      timestamp: admin.database.ServerValue.TIMESTAMP,
+      timestamp: ServerValue.TIMESTAMP,
     });
     console.log(`[${new Date().toISOString()}] ${req.user.email} -> ${command}`);
     res.status(200).json({ status: 'Success', command });
@@ -72,7 +74,7 @@ app.post('/api/robot/ultrasonic', requireAdmin, async (req, res) => {
   try {
     await db.ref('robot').update({
       ultrasonicEnabled: enabled,
-      updatedAt: admin.database.ServerValue.TIMESTAMP,
+      updatedAt: ServerValue.TIMESTAMP,
     });
     console.log(`[${new Date().toISOString()}] ${req.user.email} ultrasonic -> ${enabled}`);
     res.status(200).json({ status: 'Success', ultrasonicEnabled: enabled });
