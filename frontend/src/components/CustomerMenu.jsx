@@ -156,6 +156,7 @@ export default function CustomerMenu() {
   // Newsletter Form State
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterDob, setNewsletterDob] = useState('');
+  const [newsletterConsent, setNewsletterConsent] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
 
   // Receipt email step (asked after "Place order")
@@ -398,6 +399,10 @@ export default function CustomerMenu() {
       setAlertMessage('Please enter your email address.');
       return;
     }
+    if (!newsletterConsent) {
+      setAlertMessage('Please tick the box to agree to receive our newsletter.');
+      return;
+    }
     if (subscribing) return;
     setSubscribing(true);
     const email = newsletterEmail.trim();
@@ -407,6 +412,7 @@ export default function CustomerMenu() {
       await push(newsletterRef, {
         email,
         dob: newsletterDob || 'Not provided',
+        consentAt: Date.now(),
         timestamp: Date.now()
       });
 
@@ -433,6 +439,7 @@ export default function CustomerMenu() {
       );
       setNewsletterEmail('');
       setNewsletterDob('');
+      setNewsletterConsent(false);
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to subscribe. Please try again.');
@@ -468,7 +475,7 @@ export default function CustomerMenu() {
 
   const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const qtyInCart = (id) => cart.find(i => i.id === id)?.qty || 0;
-  
+
   // the order that currently holds this table (if any): the table is busy until it is served
   const activeOrderForTable = tableName ? allOrders.find(o => o.tableName === tableName && isLiveOrder(o)) : null;
   const tableBusy = !!activeOrderForTable;
@@ -939,7 +946,7 @@ export default function CustomerMenu() {
             </div>
             <div className="flex items-center gap-3">
               <span className="f-cond uppercase tracking-widest text-xs">Table</span>
-              
+
               {tableLocked ? (
                 <div className="bg-white border-2 border-[#3a1a0b]/25 px-4 py-1.5 text-sm font-bold text-[#3a1a0b] min-w-[120px] text-center">
                   {tableName}
@@ -1137,6 +1144,17 @@ export default function CustomerMenu() {
                 className="w-full bg-[#f7f2e8] border-2 border-[#1a5c38] px-4 py-3 text-sm text-[#3a1a0b] focus:outline-none"
               />
             </div>
+            <label className="flex items-start gap-2 text-xs text-[#3a1a0b]/80 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={newsletterConsent}
+                onChange={(e) => setNewsletterConsent(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-[#d92b2b]"
+              />
+              <span>
+                I agree to receive news and offers by email. My email and date of birth are kept private and used only for this newsletter. I can ask to be removed at any time.
+              </span>
+            </label>
             <button
               type="submit"
               disabled={subscribing}
@@ -1248,7 +1266,7 @@ export default function CustomerMenu() {
 
               <div className="px-5 py-4 space-y-1.5 border-b border-[#3a1a0b]/10">
                 <label className="f-cond uppercase tracking-widest text-xs">Your table</label>
-                
+
                 {tableLocked ? (
                   <div className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm font-bold text-[#3a1a0b]">
                     {tableName} (locked · {tableLockReason})
@@ -1348,7 +1366,7 @@ export default function CustomerMenu() {
                 <div>
                   <h3 className="f-slab text-2xl">WANT A RECEIPT?</h3>
                   <p className="text-sm text-[#3a1a0b]/70 mt-1">
-                    Enter your email and we will send the receipt for {tableName}. We only use it for this one email and do not store it.
+                    Enter your email and we will send the receipt for {tableName}. We do not save it in our database. It is sent to our email service (EmailJS) only to deliver this receipt.
                   </p>
                 </div>
                 <button type="button" onClick={() => setShowReceipt(false)} aria-label="Close" className="p-1 -mr-1 hover:bg-[#3a1a0b]/10">

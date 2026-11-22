@@ -85,6 +85,24 @@ const daysAgoStart = (n) => {
 };
 const itemsSummary = (o) => (o.items || []).map(it => `${it.qty}× ${it.name}`).join(', ');
 
+// Price check: does the order total match its items, and do the item prices match the current menu?
+// Returns a list of problems (empty list = order looks fine).
+const checkOrder = (o, menuItems) => {
+  const items = o.items || [];
+  const sum = items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
+  const issues = [];
+  if (Math.round(sum) !== Math.round(orderTotal(o))) {
+    issues.push(`Total says ${fmtMoney(orderTotal(o))} but the items add up to ${fmtMoney(sum)}`);
+  }
+  items.forEach(it => {
+    const m = menuItems.find(x => x.id === it.id);
+    if (m && Number(m.price) !== Number(it.price)) {
+      issues.push(`${it.name}: ordered at ${fmtMoney(it.price)}, menu price is ${fmtMoney(m.price)}`);
+    }
+  });
+  return issues;
+};
+
 // cells starting with = + - @ tab or CR are prefixed so spreadsheets don't run them as formulas
 const downloadCsv = (filename, rows) => {
   const cell = (v) => {
@@ -879,6 +897,12 @@ export default function AdminPanel() {
     const action = NEXT_ACTION[stage];
     if (!action) return;
 
+    // warn before the kitchen starts on an order whose prices do not add up
+    if (stage === 0) {
+      const issues = checkOrder(order, menuItems);
+      if (issues.length > 0 && !window.confirm(`⚠️ Price check failed:\n- ${issues.join('\n- ')}\n\nContinue anyway?`)) return;
+    }
+
     const isDispatch = action.status === 'CONFIRMED & DISPATCHED';
 
     if (isDispatch && robotWeight < WEIGHT_LIMIT) {
@@ -1278,6 +1302,7 @@ export default function AdminPanel() {
                   const action = NEXT_ACTION[stage];
                   const hasNotes = order.items?.some(it => it.note);
                   const isDispatchStep = action?.status === 'CONFIRMED & DISPATCHED';
+                  const priceIssues = stage < 4 ? checkOrder(order, menuItems) : [];
                   return (
                     <motion.div
                       key={order.id}
@@ -1302,6 +1327,14 @@ export default function AdminPanel() {
                             {hasNotes && (
                               <span className="f-cond uppercase tracking-widest text-[10px] px-2 py-0.5 bg-[#d92b2b] text-white">
                                 Has notes
+                              </span>
+                            )}
+                            {priceIssues.length > 0 && (
+                              <span
+                                title={priceIssues.join('; ')}
+                                className="f-cond uppercase tracking-widest text-[10px] px-2 py-0.5 bg-[#b82020] text-white"
+                              >
+                                Price mismatch
                               </span>
                             )}
                           </div>
