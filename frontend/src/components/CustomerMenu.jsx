@@ -124,7 +124,7 @@ function OrderProgress({ status }) {
               >
                 {done ? <Check className="w-3 h-3" /> : i + 1}
               </motion.span>
-              <span className={`f-cond uppercase tracking-wider text-[10px] ${i <= stage ? 'text-[#3a1a0b]' : 'text-[#3a1a0b]/40'}`}>
+              <span className={`f-cond uppercase tracking-wider text-[10px] ${i <= stage ? 'text-[#3a1a0b]' : 'text-[#3a1a0b]/55'}`}>
                 {label}
               </span>
             </div>
@@ -810,7 +810,7 @@ export default function CustomerMenu() {
               />
               <div className={`absolute inset-0 ${t.tall ? 'bg-gradient-to-b from-black/80 via-black/20 to-transparent' : 'bg-gradient-to-r from-[#1a0e08] from-45% to-transparent'}`} />
               <div className="relative p-5 md:p-7">
-                <p className="f-cond text-xs uppercase tracking-widest text-white/70">{t.kicker}</p>
+                <p className="f-cond text-xs uppercase tracking-widest text-white/85">{t.kicker}</p>
                 <p className={`f-cond uppercase text-white leading-tight mt-1 ${t.tall ? 'text-3xl md:text-4xl max-w-[12rem]' : 'text-2xl max-w-[9rem]'}`}>
                   {t.title}
                 </p>
@@ -853,7 +853,7 @@ export default function CustomerMenu() {
       </section>
 
       {/* MENU */}
-      <section id="menu" className="scroll-mt-16 pb-12 md:pb-16">
+      <section id="menu" className="scroll-mt-16 pt-12 md:pt-16 pb-12 md:pb-16">
         <div className={wrap}>
           <motion.div
             className="text-center"
@@ -866,7 +866,7 @@ export default function CustomerMenu() {
               Fresh daily
             </span>
             <h2 className="f-slab text-4xl md:text-5xl mt-3">PICK YOUR FAVOURITES</h2>
-            <p className="text-sm text-[#3a1a0b]/70 max-w-md mx-auto mt-3">
+            <p className="text-sm text-[#3a1a0b]/80 max-w-md mx-auto mt-3">
               Freshly prepared with local ingredients. Choose your dishes, sit back and relax, and we'll bring them to your table.
             </p>
           </motion.div>
@@ -936,7 +936,7 @@ export default function CustomerMenu() {
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-10 mt-8">
             {filteredItems.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-sm text-[#3a1a0b]/60 border-2 border-dashed border-[#3a1a0b]/20">
+              <div className="col-span-full py-12 text-center text-sm text-[#3a1a0b]/70 border-2 border-dashed border-[#3a1a0b]/20">
                 No dishes match your search or filters.
               </div>
             ) : (
@@ -961,11 +961,11 @@ export default function CustomerMenu() {
                     </motion.div>
                     <div className="w-28 h-3 rounded-[50%] bg-[#3a1a0b]/20 blur-md mt-2" />
                     <h3 className="f-cond uppercase text-lg md:text-xl mt-3 leading-tight">{item.name}</h3>
-                    <p className="text-xs text-[#3a1a0b]/65 mt-1.5 line-clamp-2 max-w-[14rem] leading-relaxed">{item.desc}</p>
+                    <p className="text-[13px] text-[#3a1a0b]/80 mt-1.5 line-clamp-2 max-w-[15rem] leading-relaxed">{item.desc}</p>
                     {getTags(item).length > 0 && (
                       <div className="flex flex-wrap justify-center gap-1.5 mt-2">
                         {getTags(item).map(t => (
-                          <span key={t} className={`f-cond uppercase tracking-widest text-[10px] px-2 py-0.5 rounded-sm ${tagStyle(t)}`}>
+                          <span key={t} className={`f-cond uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-sm ${tagStyle(t)}`}>
                             {t}
                           </span>
                         ))}
@@ -1033,7 +1033,7 @@ export default function CustomerMenu() {
           </div>
 
           {visibleOrders.length === 0 ? (
-            <p className="py-6 text-sm text-[#3a1a0b]/60 border-2 border-dashed border-[#3a1a0b]/20 text-center">
+            <p className="py-6 text-sm text-[#3a1a0b]/70 border-2 border-dashed border-[#3a1a0b]/20 text-center">
               {tableName
                 ? `No recent orders for your table.${tableLocked ? '' : ' (You can change your table above if needed.)'}`
                 : 'Choose your table to see your orders.'}
@@ -1051,7 +1051,7 @@ export default function CustomerMenu() {
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="f-cond uppercase text-xl leading-none">{order.tableName}</p>
-                      <p className="text-xs text-[#3a1a0b]/60 mt-1">{new Date(order.timestamp).toLocaleTimeString()}</p>
+                      <p className="text-xs text-[#3a1a0b]/70 mt-1">{new Date(order.timestamp).toLocaleTimeString()}</p>
                     </div>
                     <span className={`f-cond uppercase tracking-widest text-xs px-2.5 py-1 ${statusStyle(order.status)}`}>
                       {order.status || 'PENDING'}
@@ -1065,7 +1065,7 @@ export default function CustomerMenu() {
                       <div key={idx} className="text-sm">
                         <div className="flex justify-between">
                           <span>{it.qty} × {it.name}</span>
-                          <span className="text-[#3a1a0b]/60">LKR {it.price * it.qty}</span>
+                          <span className="text-[#3a1a0b]/75">LKR {it.price * it.qty}</span>
                         </div>
                         {it.note && (
                           <p className="text-xs italic text-[#d92b2b] mt-0.5">“{it.note}”</p>
@@ -1091,7 +1091,7 @@ export default function CustomerMenu() {
           <div className="text-center mb-10">
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Feedback</span>
             <h2 className="f-slab text-3xl md:text-4xl mt-2">CUSTOMER REVIEWS</h2>
-            <p className="text-sm text-[#3a1a0b]/70 mt-1">Tell us how we did. Every comment helps us serve you better.</p>
+            <p className="text-sm text-[#3a1a0b]/80 mt-1">Tell us how we did. Every comment helps us serve you better.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8 items-start">
@@ -1153,7 +1153,7 @@ export default function CustomerMenu() {
             <div className="space-y-4 max-h-[450px] overflow-y-auto pr-2">
               <h3 className="f-slab text-2xl">What Others Say</h3>
               {reviews.length === 0 ? (
-                <p className="text-sm text-[#3a1a0b]/60 py-6 text-center border-2 border-dashed border-[#3a1a0b]/20 bg-white">
+                <p className="text-sm text-[#3a1a0b]/70 py-6 text-center border-2 border-dashed border-[#3a1a0b]/20 bg-white">
                   No reviews yet. Be the first to review!
                 </p>
               ) : (
@@ -1162,7 +1162,7 @@ export default function CustomerMenu() {
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="f-cond uppercase font-bold text-base">{rev.name}</p>
-                        <p className="text-xs text-[#3a1a0b]/50">{new Date(rev.timestamp).toLocaleDateString()}</p>
+                        <p className="text-xs text-[#3a1a0b]/65">{new Date(rev.timestamp).toLocaleDateString()}</p>
                       </div>
                       <div className="flex">
                         {[...Array(Math.min(5, Math.max(1, Math.round(Number(rev.rating)) || 5)))].map((_, i) => (
@@ -1243,10 +1243,10 @@ export default function CustomerMenu() {
           <div className="space-y-4">
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Our story</span>
             <h2 className="f-slab text-3xl md:text-4xl leading-tight">A WARM PLACE TO EAT, MEET &amp; RELAX</h2>
-            <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
+            <p className="text-sm leading-relaxed text-[#3a1a0b]/85">
               SmartBistro is a cosy modern bistro in the heart of Kandy, made for catching up with friends, relaxed family lunches and quiet moments on your own. Our menu is short on purpose, so every dish is cooked fresh from local ingredients.
             </p>
-            <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
+            <p className="text-sm leading-relaxed text-[#3a1a0b]/85">
               We love good food and clever ideas. You order from your phone at the table and our little delivery robot brings your meal to you. Fast, fresh and a bit of the future.
             </p>
             <button
@@ -1283,7 +1283,7 @@ export default function CustomerMenu() {
             <p className="text-sm leading-relaxed text-white/85">Every day<br />10:00 AM – 11:00 PM</p>
           </div>
         </div>
-        <div className="border-t border-white/10 py-4 pb-20 md:pb-4 text-center text-xs text-white/50">
+        <div className="border-t border-white/10 py-4 pb-20 md:pb-4 text-center text-xs text-white/70">
           © 2026 SmartBistro, Kandy
         </div>
       </footer>
