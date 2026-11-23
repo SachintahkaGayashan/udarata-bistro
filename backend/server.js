@@ -1,4 +1,5 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -23,7 +24,7 @@ const origins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
 app.use(cors({
   origin: origins,
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Key'],
 }));
 
 // Rate limit: විනාඩියකට requests 60
@@ -95,6 +96,80 @@ app.get('/api/robot/qtr-sensors', requireAdmin, async (req, res) => {
   }
 });
 
+// ---- 4. Container unlock (called by the ESP32-CAM after it scans a QR code) ----
+const DEVICE_KEY = process.env.ROBOT_DEVICE_KEY || '';
+const UNLOCK_VALID_MS = 6 * 60 * 60 * 1000;          // a QR code works for 6 hours
+const CODE_RE = /^SB1\.([A-Za-z0-9_-]{10,40})\.([a-f0-9]{32})$/;
+
+const sha256Hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const safeEqual = (a, b) => {
+  const x = crypto.createHash('sha256').update(String(a)).digest();
+  const y = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(x, y);
+};
+
+// stricter limit than the global one: 10 tries a minute
+const unlockLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+
+function requireDevice(req, res, next) {
+  if (DEVICE_KEY.length < 24) {
+    console.error('ROBOT_DEVICE_KEY is missing or too short (min 24 chars) in .env');
+    return res.status(503).json({ error: 'Not configured' });
+  }
+  const key = req.headers['x-device-key'] || '';
+  if (!safeEqual(key, DEVICE_KEY)) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
+
+app.post('/api/robot/unlock', unlockLimiter, requireDevice, async (req, res) => {
+  const code = String((req.body || {}).code || '').trim();
+  const m = CODE_RE.exec(code);
+  if (!m) return res.status(400).json({ error: 'Invalid code' });
+  const [, orderId, token] = m;
+
+  try {
+    const lockRef = db.ref(`orderLocks/${orderId}`);
+    const orderSnap = await db.ref(`orders/${orderId}`).once('value');
+    const order = orderSnap.val();
+    if (!order) return res.status(403).json({ error: 'Invalid code' });
+
+    const status = String(order.status || '').toUpperCase();
+    if (status.includes('CANCEL') || status.includes('SERVED') || status.includes('COMPLETED')) {
+      return res.status(403).json({ error: 'Order already finished' });
+    }
+
+    const wantHash = sha256Hex(token);
+    let reason = null;
+    // transaction = the "used" flag is set atomically, so a code can never open the box twice
+    const result = await lockRef.transaction((lock) => {
+      reason = null;
+      if (lock === null) { reason = 'Invalid code'; return; }          // abort
+      if (lock.usedAt) { reason = 'Code already used'; return; }
+      if (!safeEqual(lock.qrHash, wantHash)) { reason = 'Invalid code'; return; }
+      if (Date.now() - Number(lock.timestamp || 0) > UNLOCK_VALID_MS) { reason = 'Code expired'; return; }
+      return { ...lock, usedAt: Date.now() };
+    });
+
+    if (!result.committed) {
+      console.warn(`[${new Date().toISOString()}] unlock REJECTED order ${orderId}: ${reason || 'aborted'}`);
+      return res.status(403).json({ error: reason || 'Invalid code' });
+    }
+
+    // the NodeMCU watches robot/unlockSeq and opens the lock when it changes
+    await db.ref('robot').update({
+      unlockSeq: ServerValue.increment(1),
+      unlockOrder: orderId,
+      unlockAt: ServerValue.TIMESTAMP,
+    });
+    console.log(`[${new Date().toISOString()}] unlock OK order ${orderId} (${order.tableName})`);
+    res.status(200).json({ status: 'Unlocked', table: order.tableName });
+  } catch (err) {
+    console.error('unlock error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
+// Default: only this PC. To let the ESP32-CAM reach it over Wi-Fi, set HOST=0.0.0.0 in backend/.env
 const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => console.log(`Gateway running on http://${HOST}:${PORT}`));

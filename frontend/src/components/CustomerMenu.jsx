@@ -17,6 +17,17 @@ const emailConfigured = ['serviceId', 'templateId', 'publicKey'].every(k => !EMA
 const receiptConfigured = ['serviceId', 'receiptTemplateId', 'publicKey'].every(k => !EMAILJS[k].startsWith('YOUR_'));
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// ---- Container-unlock QR -------------------------------------------------
+// A random secret is made in the browser for every order. Only its SHA-256 hash
+// is saved in the database (orderLocks/<orderId>); the secret itself goes only
+// into the QR code in the customer's receipt email.
+const randomHex = (bytes) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(bytes)), b => b.toString(16).padStart(2, '0')).join('');
+const sha256Hex = async (text) => {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+};
+
 const CATEGORIES = ['All', 'Mains', 'Appetizers', 'Beverages'];
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 
@@ -336,6 +347,11 @@ export default function CustomerMenu() {
       const total = calculateTotal();
       const timestamp = Date.now();
 
+      // unlock secret: only the hash is stored; the secret goes into the emailed QR code
+      const unlockToken = randomHex(16);
+      const unlockHash = await sha256Hex(unlockToken);
+      await set(ref(db, `orderLocks/${newOrderRef.key}`), { qrHash: unlockHash, timestamp });
+
       await set(newOrderRef, {
         tableName: tableName,
         items,
@@ -373,6 +389,7 @@ export default function CustomerMenu() {
               items_text: itemsText,
               total: `LKR ${total}`,
               payment: 'Pay at the counter',
+              qr_url: `${window.location.origin}/api/qr?d=${encodeURIComponent(`SB1.${newOrderRef.key}.${unlockToken}`)}`,
             },
             { publicKey: EMAILJS.publicKey }
           );
