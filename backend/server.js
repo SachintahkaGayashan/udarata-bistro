@@ -139,19 +139,23 @@ app.post('/api/robot/unlock', unlockLimiter, requireDevice, async (req, res) => 
     }
 
     const wantHash = sha256Hex(token);
+    const now = Date.now();
     let reason = null;
-    // transaction = the "used" flag is set atomically, so a code can never open the box twice
+    // transaction = the "used" flag is set atomically, so a code can never open the box twice.
+    // NOTE: Firebase may first call this function with null (before it has the real data),
+    // so null must NOT abort; returning it unchanged makes Firebase retry with the real value.
     const result = await lockRef.transaction((lock) => {
       reason = null;
-      if (lock === null) { reason = 'Invalid code'; return; }          // abort
-      if (lock.usedAt) { reason = 'Code already used'; return; }
+      if (lock === null) return lock;
+      if (lock.usedAt) { reason = 'Code already used'; return; }          // abort
       if (!safeEqual(lock.qrHash, wantHash)) { reason = 'Invalid code'; return; }
-      if (Date.now() - Number(lock.timestamp || 0) > UNLOCK_VALID_MS) { reason = 'Code expired'; return; }
-      return { ...lock, usedAt: Date.now() };
+      if (now - Number(lock.timestamp || 0) > UNLOCK_VALID_MS) { reason = 'Code expired'; return; }
+      return { ...lock, usedAt: now };
     });
 
-    if (!result.committed) {
-      console.warn(`[${new Date().toISOString()}] unlock REJECTED order ${orderId}: ${reason || 'aborted'}`);
+    const saved = result.snapshot.val();
+    if (!result.committed || !saved || saved.usedAt !== now) {
+      console.warn(`[${new Date().toISOString()}] unlock REJECTED order ${orderId}: ${reason || 'Invalid code'}`);
       return res.status(403).json({ error: reason || 'Invalid code' });
     }
 
