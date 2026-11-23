@@ -365,7 +365,7 @@ export default function CustomerMenu() {
             EMAILJS.receiptTemplateId,
             {
               to_email: to,
-              restaurant_name: 'Udarata Bistro',
+              restaurant_name: 'SmartBistro',
               order_no: String(newOrderRef.key || '').slice(-6).toUpperCase(),
               table_name: tableName,
               order_date: when.toLocaleDateString('en-GB'),
@@ -423,7 +423,7 @@ export default function CustomerMenu() {
           await emailjs.send(
             EMAILJS.serviceId,
             EMAILJS.templateId,
-            { to_email: email, restaurant_name: 'Udarata Bistro' },
+            { to_email: email, restaurant_name: 'SmartBistro' },
             { publicKey: EMAILJS.publicKey }
           );
           mailSent = true;
@@ -527,7 +527,7 @@ export default function CustomerMenu() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-white border-t-8 border-[#d92b2b] shadow-2xl max-w-sm w-full p-7 text-center space-y-4"
         >
-          <img src="/logo.png" alt="Udarata Bistro" className="w-24 h-24 object-contain mx-auto" />
+          <img src="/logo.png" alt="SmartBistro" className="w-24 h-24 object-contain mx-auto" />
           <div>
             <p className="f-cond uppercase tracking-widest text-xs text-[#3a1a0b]/60">{tableName}</p>
             <h1 className="f-slab text-3xl text-[#d92b2b] leading-tight mt-1">ALREADY BOOKED</h1>
@@ -575,9 +575,9 @@ export default function CustomerMenu() {
       >
         <div className={`${wrap} h-16 flex items-center justify-between`}>
           <button onClick={() => scrollToSection('home')} className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="Udarata Bistro logo" className="w-11 h-11 object-contain" />
+            <img src="/logo.png" alt="SmartBistro logo" className="w-11 h-11 object-contain" />
             <span className="f-cond text-xl font-semibold uppercase tracking-wide leading-none">
-              Udarata Bistro
+              SmartBistro
             </span>
           </button>
 
@@ -1179,7 +1179,7 @@ export default function CustomerMenu() {
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Our story</span>
             <h2 className="f-slab text-3xl md:text-4xl leading-tight">A SMALL DINING ROOM IN THE HILL CAPITAL</h2>
             <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
-              Udarata Bistro is a six-table restaurant in the middle of Kandy. We cook with locally sourced ingredients and keep the menu short enough that everything on it gets proper attention.
+              SmartBistro is a six-table restaurant in the middle of Kandy. We cook with locally sourced ingredients and keep the menu short enough that everything on it gets proper attention.
             </p>
             <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
               Ordering is done from your phone at the table, so the kitchen gets your order right away and you can ask for more whenever you like.
@@ -1201,9 +1201,9 @@ export default function CustomerMenu() {
       <footer id="contact" className="scroll-mt-16 bg-[#3a1a0b] text-white">
         <div className={`${wrap} py-10 grid grid-cols-1 md:grid-cols-4 gap-8`}>
           <div>
-            <img src="/logo.png" alt="Udarata Bistro" className="w-24 h-24 object-contain mb-3" />
+            <img src="/logo.png" alt="SmartBistro" className="w-24 h-24 object-contain mb-3" />
             <p className="f-slab text-2xl text-[#f2b632]">FIND US</p>
-            <p className="text-sm text-white/70 mt-2">Udarata Bistro, Kandy</p>
+            <p className="text-sm text-white/70 mt-2">SmartBistro, Kandy</p>
           </div>
           <div>
             <h3 className="f-cond uppercase tracking-widest text-xs text-[#f2b632] mb-2">Address</h3>
@@ -1219,7 +1219,7 @@ export default function CustomerMenu() {
           </div>
         </div>
         <div className="border-t border-white/10 py-4 pb-20 md:pb-4 text-center text-xs text-white/50">
-          © 2026 Udarata Bistro, Kandy
+          © 2026 SmartBistro, Kandy
         </div>
       </footer>
 
