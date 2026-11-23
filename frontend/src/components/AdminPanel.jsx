@@ -16,6 +16,11 @@ const EMPTY_FOOD = { name: '', price: '', category: 'Mains', image: '', desc: ''
 
 const ROBOT_DISPATCH_STATUS = 'DELIVERING';
 
+// Image upload (Cloudinary, unsigned preset). Both values are public, never put an API secret here.
+const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+const MAX_IMAGE_MB = 5;
+
 const STAGE_LABELS = ['Pending', 'Preparing', 'Ready', 'On the way', 'Served'];
 
 const NEXT_ACTION = [
@@ -783,6 +788,7 @@ export default function AdminPanel() {
   const [editingFood, setEditingFood] = useState(null);
   const [foodForm, setFoodForm] = useState(EMPTY_FOOD);
   const [customTag, setCustomTag] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [alertMessage, setAlertMessage] = useState(''); // Custom Alert Modal State
   const [reviews, setReviews] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
@@ -939,6 +945,10 @@ export default function AdminPanel() {
 
   const handleSaveFood = async (e) => {
     e.preventDefault();
+    if (uploading) {
+      setAlertMessage('Please wait for the image to finish uploading.');
+      return;
+    }
     if (!foodForm.name || !foodForm.price) {
       setAlertMessage('Please fill out name and price.');
       return;
@@ -1017,6 +1027,38 @@ export default function AdminPanel() {
       subscribers.map(s => [s.email, s.dob, s.timestamp ? new Date(s.timestamp).toLocaleString() : ''])
     );
     downloadCsv('newsletter-subscribers.csv', rows);
+  };
+
+  // Upload a dish photo to Cloudinary and put the returned URL in the form
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      setAlertMessage('Please choose a JPG, PNG or WEBP image.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setAlertMessage(`Image is too large. Maximum size is ${MAX_IMAGE_MB} MB.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('upload_preset', UPLOAD_PRESET);
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok || !data.secure_url) throw new Error(data?.error?.message || 'Upload failed');
+      // deliver a small, compressed version (max 800px wide) instead of the original file
+      const optimized = data.secure_url.replace('/upload/', '/upload/w_800,c_limit,q_auto,f_auto/');
+      setFoodForm(f => ({ ...f, image: optimized }));
+    } catch (err) {
+      console.error(err);
+      setAlertMessage('Image upload failed. Please try again, or paste an image URL instead.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const toggleFoodTag = (tag) => {
@@ -1731,7 +1773,23 @@ export default function AdminPanel() {
                 </div>
 
                 <div>
-                  <label className={lbl}>Image URL</label>
+                  <label className={lbl}>Image</label>
+                  {CLOUD_NAME && UPLOAD_PRESET && (
+                    <div className="flex items-center gap-3 mb-2">
+                      <label className={`${btnLine} cursor-pointer inline-block ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        {uploading ? 'Uploading…' : 'Choose image'}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                      </label>
+                      {foodForm.image && (
+                        <img src={foodForm.image} alt="" className="w-12 h-12 object-cover rounded-full border border-[#3a1a0b]/20" />
+                      )}
+                    </div>
+                  )}
                   <input
                     type="text"
                     value={foodForm.image}
