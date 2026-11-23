@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star, Lock } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star, Lock, QrCode, Bot, Leaf } from 'lucide-react';
 import { getDatabase, ref, push, set, onValue } from 'firebase/database';
 import { motion, AnimatePresence } from 'framer-motion';
 import emailjs from '@emailjs/browser';
@@ -510,9 +510,9 @@ export default function CustomerMenu() {
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
   const heroImg = pickImg(0);
   const tiles = [
-    { kicker: 'Try it today', title: 'Most popular dish', img: pickImg(0), tall: true },
-    { kicker: 'Try it today', title: 'More fun, more taste', img: pickImg(1) },
-    { kicker: 'Try it today', title: 'Fresh & spicy', img: pickImg(2) },
+    { kicker: 'Guest favourite', title: 'Our most loved dish', img: pickImg(0), tall: true },
+    { kicker: 'Made for sharing', title: 'Small plates, big taste', img: pickImg(1) },
+    { kicker: 'Fresh today', title: 'Bold & flavourful', img: pickImg(2) },
   ];
 
   const statusStyle = (status) => {
@@ -712,14 +712,14 @@ export default function CustomerMenu() {
               variants={fadeUp}
               className="inline-block f-cond uppercase tracking-widest text-xs md:text-sm border border-dashed border-[#3a1a0b] px-3 py-1.5"
             >
-              A good time for great Sri Lankan taste
+              Fast, Fresh, Future
             </motion.span>
             <motion.h1 variants={fadeUp} className="f-slab leading-[0.95]">
-              <span className="block text-6xl md:text-8xl">SPECIAL</span>
-              <span className="block text-4xl md:text-6xl mt-1">FLAVOURS</span>
+              <span className="block text-6xl md:text-8xl">TASTE</span>
+              <span className="block text-4xl md:text-6xl mt-1">THE FUTURE</span>
             </motion.h1>
             <motion.p variants={fadeUp} className="text-sm md:text-base max-w-md leading-relaxed text-[#3a1a0b]/80 font-medium">
-              Choose your table, pick your dishes and send the order straight to the kitchen. Pay at the counter when you're done.
+              Relaxed bistro dining in the heart of Kandy. Scan the code at your table, choose what you love and our kitchen and delivery robot do the rest. Pay at the counter when you're done.
             </motion.p>
             <motion.div variants={fadeUp} className="flex flex-wrap gap-3 pt-1">
               <motion.button
@@ -804,6 +804,38 @@ export default function CustomerMenu() {
         </div>
       </section>
 
+      {/* WHY SMARTBISTRO */}
+      <section className="bg-[#3a1a0b] text-white py-12 md:py-14">
+        <div className={wrap}>
+          <div className="text-center">
+            <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] text-[#3a1a0b] px-3 py-1.5">Why SmartBistro</span>
+            <h2 className="f-slab text-3xl md:text-4xl mt-3">EASY, FRESH &amp; A LITTLE BIT FUTURE</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8 mt-8">
+            {[
+              { Icon: QrCode, title: 'Order from your table', text: 'Scan the code at your table, pick your dishes and send them straight to the kitchen. No waiting to catch anyone\'s eye.' },
+              { Icon: Bot, title: 'Served by our robot', text: 'A friendly delivery robot brings your food to the table, and a private QR code opens your container only for you.' },
+              { Icon: Leaf, title: 'Fresh, local, made to order', text: 'A short menu cooked with local ingredients, so every dish gets proper attention.' },
+            ].map(({ Icon, title, text }, i) => (
+              <motion.div
+                key={title}
+                className="text-center px-2"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-60px' }}
+                transition={{ duration: 0.5, delay: i * 0.12 }}
+              >
+                <div className="w-16 h-16 mx-auto rounded-full bg-[#f2b632] text-[#3a1a0b] flex items-center justify-center">
+                  <Icon className="w-8 h-8" />
+                </div>
+                <h3 className="f-cond uppercase tracking-widest text-lg mt-4 text-[#f2b632]">{title}</h3>
+                <p className="text-sm leading-relaxed text-white/80 mt-2 max-w-xs mx-auto">{text}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* MENU */}
       <section id="menu" className="scroll-mt-16 pb-12 md:pb-16">
         <div className={wrap}>
@@ -815,11 +847,11 @@ export default function CustomerMenu() {
             transition={{ duration: 0.5 }}
           >
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">
-              Always tasty
+              Fresh daily
             </span>
-            <h2 className="f-slab text-4xl md:text-5xl mt-3">CHOOSE &amp; ENJOY</h2>
+            <h2 className="f-slab text-4xl md:text-5xl mt-3">PICK YOUR FAVOURITES</h2>
             <p className="text-sm text-[#3a1a0b]/70 max-w-md mx-auto mt-3">
-              Everything is cooked fresh with local ingredients. Add what you like and we'll bring it to your table.
+              Freshly prepared with local ingredients. Choose your dishes, sit back and relax, and we'll bring them to your table.
             </p>
           </motion.div>
 
@@ -1043,7 +1075,7 @@ export default function CustomerMenu() {
           <div className="text-center mb-10">
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Feedback</span>
             <h2 className="f-slab text-3xl md:text-4xl mt-2">CUSTOMER REVIEWS</h2>
-            <p className="text-sm text-[#3a1a0b]/70 mt-1">Let us know about your dining experience.</p>
+            <p className="text-sm text-[#3a1a0b]/70 mt-1">Tell us how we did. Every comment helps us serve you better.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8 items-start">
@@ -1135,10 +1167,10 @@ export default function CustomerMenu() {
       <section className="py-14 bg-[#f3ecdd] border-t border-[#3a1a0b]/10">
         <div className="max-w-md mx-auto px-4 text-center space-y-6">
           <div className="space-y-2">
-            <h2 className="f-slab text-4xl md:text-5xl text-[#d92b2b]">Our Newsletter</h2>
-            <p className="f-cond text-2xl md:text-3xl uppercase tracking-wider text-[#1a5c38]">JOIN TODAY..</p>
+            <h2 className="f-slab text-4xl md:text-5xl text-[#d92b2b]">Stay in the Loop</h2>
+            <p className="f-cond text-2xl md:text-3xl uppercase tracking-wider text-[#1a5c38]">JOIN OUR CLUB</p>
             <p className="text-sm text-[#3a1a0b]/80 font-medium pt-2">
-              Sign-up to our newsletter to receive all our latest news and offers.
+              Get news, new dishes and special offers straight to your inbox.
             </p>
           </div>
 
@@ -1194,12 +1226,12 @@ export default function CustomerMenu() {
         >
           <div className="space-y-4">
             <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Our story</span>
-            <h2 className="f-slab text-3xl md:text-4xl leading-tight">A SMALL DINING ROOM IN THE HILL CAPITAL</h2>
+            <h2 className="f-slab text-3xl md:text-4xl leading-tight">A WARM PLACE TO EAT, MEET &amp; RELAX</h2>
             <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
-              SmartBistro is a six-table restaurant in the middle of Kandy. We cook with locally sourced ingredients and keep the menu short enough that everything on it gets proper attention.
+              SmartBistro is a cosy modern bistro in the heart of Kandy, made for catching up with friends, relaxed family lunches and quiet moments on your own. Our menu is short on purpose, so every dish is cooked fresh from local ingredients.
             </p>
             <p className="text-sm leading-relaxed text-[#3a1a0b]/75">
-              Ordering is done from your phone at the table, so the kitchen gets your order right away and you can ask for more whenever you like.
+              We love good food and clever ideas. You order from your phone at the table and our little delivery robot brings your meal to you. Fast, fresh and a bit of the future.
             </p>
             <button
               onClick={() => scrollToSection('menu')}
@@ -1220,7 +1252,7 @@ export default function CustomerMenu() {
           <div>
             <img src="/logo.png" alt="SmartBistro" className="w-24 h-24 object-contain mb-3" />
             <p className="f-slab text-2xl text-[#f2b632]">FIND US</p>
-            <p className="text-sm text-white/70 mt-2">SmartBistro, Kandy</p>
+            <p className="text-sm text-white/70 mt-2">SmartBistro, Kandy<br />Fast, Fresh, Future</p>
           </div>
           <div>
             <h3 className="f-cond uppercase tracking-widest text-xs text-[#f2b632] mb-2">Address</h3>
