@@ -28,6 +28,21 @@ const sha256Hex = async (text) => {
   return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
 };
 
+// ---- Site pictures --------------------------------------------------------
+// Put your own pictures in frontend/public/site/ with exactly these names.
+// If a file is missing, the page falls back to a dish photo from the menu.
+const SITE_IMG = {
+  hero: '/site/hero.jpg',      // round picture in the top banner (square, 1000 x 1000)
+  tile1: '/site/tile-1.jpg',   // tall tile on the left (portrait, 900 x 1200)
+  tile2: '/site/tile-2.jpg',   // small tile, top right (landscape, 800 x 600)
+  tile3: '/site/tile-3.jpg',   // small tile, bottom right (landscape, 800 x 600)
+  about: '/site/about.jpg',    // About us picture (landscape 4:3, 1200 x 900)
+};
+function SiteImg({ src, fallback, ...props }) {
+  const [failed, setFailed] = useState(false);
+  return <img src={failed ? fallback : src} onError={() => setFailed(true)} {...props} />;
+}
+
 const CATEGORIES = ['All', 'Mains', 'Appetizers', 'Beverages'];
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 
@@ -510,9 +525,9 @@ export default function CustomerMenu() {
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
   const heroImg = pickImg(0);
   const tiles = [
-    { kicker: 'Guest favourite', title: 'Our most loved dish', img: pickImg(0), tall: true },
-    { kicker: 'Made for sharing', title: 'Small plates, big taste', img: pickImg(1) },
-    { kicker: 'Fresh today', title: 'Bold & flavourful', img: pickImg(2) },
+    { kicker: 'Guest favourite', title: 'Our most loved dish', img: SITE_IMG.tile1, fb: pickImg(0), tall: true },
+    { kicker: 'Made for sharing', title: 'Small plates, big taste', img: SITE_IMG.tile2, fb: pickImg(1) },
+    { kicker: 'Fresh today', title: 'Bold & flavourful', img: SITE_IMG.tile3, fb: pickImg(2) },
   ];
 
   const statusStyle = (status) => {
@@ -752,7 +767,7 @@ export default function CustomerMenu() {
               transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
               className="w-72 h-72 md:w-[26rem] md:h-[26rem] rounded-full overflow-hidden border-[10px] border-white shadow-[0_25px_50px_-12px_rgba(58,26,11,0.55)]"
             >
-              <img src={heroImg} alt="Featured dish" className="w-full h-full object-cover" />
+              <SiteImg src={SITE_IMG.hero} fallback={heroImg} alt="Featured dish" className="w-full h-full object-cover" />
             </motion.div>
             <motion.div
               initial={{ scale: 0 }}
@@ -785,8 +800,9 @@ export default function CustomerMenu() {
                 t.tall ? 'md:row-span-2 h-72 md:h-auto min-h-[24rem]' : 'h-44 md:h-[11.5rem]'
               }`}
             >
-              <img
+              <SiteImg
                 src={t.img}
+                fallback={t.fb}
                 alt=""
                 className={`absolute object-cover transition-transform duration-500 group-hover:scale-105 ${
                   t.tall ? 'inset-0 w-full h-full opacity-90' : 'right-0 top-0 h-full w-3/5'
@@ -1241,7 +1257,7 @@ export default function CustomerMenu() {
             </button>
           </div>
           <div className="aspect-[4/3] bg-[#1a0e08] overflow-hidden rounded-md">
-            <img src={pickImg(3)} alt="" className="w-full h-full object-cover" />
+            <SiteImg src={SITE_IMG.about} fallback={pickImg(3)} alt="" className="w-full h-full object-cover" />
           </div>
         </motion.div>
       </section>
