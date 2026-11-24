@@ -83,20 +83,36 @@ const getStage = (status) => {
   return 0;
 };
 
-const isActiveOrder = (o) => !!o.status && !/COMPLETED|SERVED/.test(String(o.status).toUpperCase());
-
-const RECENT_MS = 3 * 60 * 60 * 1000;
 // An unfinished order only blocks its table for this long, so one forgotten order
 // (never marked served) cannot keep a table locked for days.
 const ACTIVE_MAX_MS = 12 * 60 * 60 * 1000;
-// After the food is served, the table stays locked until the robot is back in the kitchen
-// (the robot or the admin sets robotReturnedAt). Safety limit: 60 minutes after serving.
+// After the food is served the table stays locked until the robot is back in the kitchen.
+// Safety limit: 60 minutes after serving.
 const RETURN_MAX_MS = 60 * 60 * 1000;
-const isRobotStillOut = (o) =>
-  !isActiveOrder(o) && !!o.status && !o.robotReturnedAt &&
-  Date.now() - Number(o.servedAt || o.timestamp || 0) < RETURN_MAX_MS;
-const isLiveOrder = (o) =>
-  (isActiveOrder(o) && Date.now() - Number(o.timestamp || 0) < ACTIVE_MAX_MS) || isRobotStillOut(o);
+
+// tableStatus/<table> = { busy, since, orderId, servedAt? } is public and holds NO order details
+const isTableBusy = (st) => {
+  if (!st || !st.busy) return false;
+  if (st.servedAt) return Date.now() - Number(st.servedAt) < RETURN_MAX_MS;
+  return Date.now() - Number(st.since || 0) < ACTIVE_MAX_MS;
+};
+
+// The customer's own orders are remembered on this phone (the secret tracking key is also in the receipt email)
+const MY_KEY = 'bistro_my_orders';
+const KEY_RE = /^[a-f0-9]{32}$/;
+const loadMine = () => {
+  try {
+    const a = JSON.parse(localStorage.getItem(MY_KEY) || '[]');
+    return Array.isArray(a) ? a.filter(x => x && KEY_RE.test(x.k) && Date.now() - Number(x.ts || 0) < ACTIVE_MAX_MS) : [];
+  } catch { return []; }
+};
+const saveMine = (a) => { try { localStorage.setItem(MY_KEY, JSON.stringify(a.slice(0, 5))); } catch { /* ignore */ } };
+const getTrackFromUrl = () => {
+  try {
+    const k = new URLSearchParams(window.location.search).get('track') || '';
+    return KEY_RE.test(k) ? k : '';
+  } catch { return ''; }
+};
 
 // Works with the short link (/table01) and the older /?table=Table 01 link
 const getTableFromUrl = () => {
@@ -165,19 +181,22 @@ const stagger = {
 export default function CustomerMenu() {
   const [cart, setCart] = useState([]);
   const lockedTable = getTableFromUrl();
-  const [tableName, setTableName] = useState(() => {
-    if (lockedTable) {
-      localStorage.setItem('bistro_kandy_table', lockedTable);
-      return lockedTable;
-    }
-    return localStorage.getItem('bistro_kandy_table') || '';
-  });
+  // The table comes ONLY from the QR code link (/table03). There is no table picker, so nobody can order for another table.
+  const tableName = lockedTable;
   const [activeCategory, setActiveCategory] = useState('All');
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
-  const [allOrders, setAllOrders] = useState([]);
-  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [tableStatus, setTableStatus] = useState({});
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  const [myKeys, setMyKeys] = useState(() => {
+    const mine = loadMine();
+    const fromUrl = getTrackFromUrl();
+    if (fromUrl && !mine.some(x => x.k === fromUrl)) mine.unshift({ k: fromUrl, t: '', ts: Date.now() });
+    saveMine(mine);
+    return mine;
+  });
+  const [myData, setMyData] = useState({});
   const [trackOnly, setTrackOnly] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
@@ -218,17 +237,11 @@ export default function CustomerMenu() {
       }
     });
 
-    const ordersRef = ref(db, 'orders');
-    const unsubOrders = onValue(ordersRef, (snapshot) => {
-      setOrdersLoaded(true);
-      const data = snapshot.val();
-      if (data) {
-        const ordersList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setAllOrders(ordersList);
-      } else {
-        setAllOrders([]);
-      }
-    });
+    const statusRef = ref(db, 'tableStatus');
+    const unsubStatus = onValue(statusRef, (snapshot) => {
+      setStatusLoaded(true);
+      setTableStatus(snapshot.val() || {});
+    }, () => setStatusLoaded(true));
 
     const reviewsRef = ref(db, 'reviews');
     const unsubReviews = onValue(reviewsRef, (snapshot) => {
@@ -243,23 +256,42 @@ export default function CustomerMenu() {
 
     return () => {
       unsubMenu();
-      unsubOrders();
+      unsubStatus();
       unsubReviews();
     };
   }, []);
 
+  // Follow this customer's own orders. Each order has a secret key; the record can only be read while the order is not served.
+  const dropKey = (k) => setMyKeys(prev => {
+    const next = prev.filter(x => x.k !== k);
+    saveMine(next);
+    return next;
+  });
+  const keyList = myKeys.map(x => x.k).join(',');
+  useEffect(() => {
+    const db = getDatabase();
+    const unsubs = keyList.split(',').filter(Boolean).map(k =>
+      onValue(
+        ref(db, `orderTracking/${k}`),
+        (snap) => {
+          const v = snap.val();
+          if (v) setMyData(p => ({ ...p, [k]: v }));
+          else { setMyData(p => ({ ...p, [k]: { ended: true } })); dropKey(k); }
+        },
+        () => {
+          // permission denied = the order was served (or the link is old): keep what we showed, mark it served
+          setMyData(p => ({ ...p, [k]: p[k] && !p[k].ended ? { ...p[k], status: 'SERVED' } : { ended: true } }));
+          dropKey(k);
+        }
+      )
+    );
+    return () => unsubs.forEach(u => u());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyList]);
+
   useEffect(() => {
     if (orderPlaced) setShowCart(false);
   }, [orderPlaced]);
-
-  const handleTableSelection = (table) => {
-    setTableName(table);
-    if (table) {
-      localStorage.setItem('bistro_kandy_table', table);
-    } else {
-      localStorage.removeItem('bistro_kandy_table');
-    }
-  };
 
   const scrollToSection = (id) => {
     setActiveTab(id);
@@ -328,7 +360,7 @@ export default function CustomerMenu() {
   const handleCheckout = (e) => {
     e.preventDefault();
     if (!tableName) {
-      setAlertMessage('Please select your table number from the menu cart before ordering!');
+      setAlertMessage('Please scan the QR code on your table to order. Orders can only be placed from a table QR code.');
       return;
     }
     if (cart.length === 0) {
@@ -336,12 +368,8 @@ export default function CustomerMenu() {
       return;
     }
 
-    const activeTableOrder = allOrders.find(
-      order => order.tableName === tableName && isLiveOrder(order)
-    );
-
-    if (activeTableOrder) {
-      setAlertMessage(`⚠️ ${tableName} is currently occupied with an active order (${activeTableOrder.status}). Please choose another table or wait until the current order completes.`);
+    if (isTableBusy(tableStatus[tableName])) {
+      setAlertMessage(`⚠️ ${tableName} already has an order in progress. Please wait until it is served and our robot is back in the kitchen.`);
       return;
     }
 
@@ -360,7 +388,7 @@ export default function CustomerMenu() {
     if (loading) return;
 
     // last check: someone may have ordered for this table while the receipt box was open
-    if (allOrders.some(o => o.tableName === tableName && isLiveOrder(o))) {
+    if (isTableBusy(tableStatus[tableName])) {
       setShowReceipt(false);
       setAlertMessage(`${tableName} was just taken by another order. Please wait until it is served.`);
       return;
@@ -379,14 +407,45 @@ export default function CustomerMenu() {
       const unlockHash = await sha256Hex(unlockToken);
       await set(ref(db, `orderLocks/${newOrderRef.key}`), { qrHash: unlockHash, timestamp });
 
+      // secret tracking key: lets this customer (and nobody else) follow the order until it is served
+      const trackKey = randomHex(16);
+
       await set(newOrderRef, {
         tableName: tableName,
         items,
         total,
         status: 'PENDING',
         paymentMethod: 'Pay at Counter',
+        trackKey,
         timestamp
       });
+
+      // what the customer may see: only the status and their own items (no names, no email)
+      await set(ref(db, `orderTracking/${trackKey}`), {
+        status: 'PENDING',
+        tableName,
+        items: items.map(it => ({
+          name: String(it.name || '').slice(0, 100),
+          qty: Number(it.qty),
+          price: Number(it.price),
+          ...(it.note ? { note: String(it.note).slice(0, 200) } : {}),
+        })),
+        total,
+        timestamp,
+        active: true,
+      });
+
+      // lock the table for everyone else (public flag only, no order details)
+      try {
+        await set(ref(db, `tableStatus/${tableName}`), { busy: true, since: timestamp, orderId: newOrderRef.key });
+      } catch (lockErr) {
+        console.error('Table lock error:', lockErr);
+        setAlertMessage(`Your order was sent, but ${tableName} was just taken by another order. Please tell our staff.`);
+      }
+
+      const mine = [{ k: trackKey, t: tableName, ts: timestamp }, ...loadMine().filter(x => x.k !== trackKey)];
+      saveMine(mine);
+      setMyKeys(mine);
 
       setShowReceipt(false);
       setReceiptEmail('');
@@ -417,6 +476,7 @@ export default function CustomerMenu() {
               total: `LKR ${total}`,
               payment: 'Pay at the counter',
               qr_url: `${window.location.origin}/api/qr?d=${encodeURIComponent(`SB1.${newOrderRef.key}.${unlockToken}`)}`,
+              track_url: `${window.location.origin}/?track=${trackKey}`,
             },
             { publicKey: EMAILJS.publicKey }
           );
@@ -520,18 +580,16 @@ export default function CustomerMenu() {
   const cartCount = cart.reduce((a, c) => a + c.qty, 0);
   const qtyInCart = (id) => cart.find(i => i.id === id)?.qty || 0;
 
-  // the order that currently holds this table (if any): the table is busy until it is served
-  const activeOrderForTable = tableName ? allOrders.find(o => o.tableName === tableName && isLiveOrder(o)) : null;
-  const tableBusy = !!activeOrderForTable;
+  // is this table busy? (public flag only: other customers never see any order details)
+  const tableBusy = !!tableName && isTableBusy(tableStatus[tableName]);
+  const tableRobotOut = tableBusy && !!tableStatus[tableName]?.servedAt;
 
-  const visibleOrders = tableName
-    ? allOrders.filter(o => o.tableName === tableName && (isLiveOrder(o) || Date.now() - Number(o.timestamp || 0) < RECENT_MS))
-    : [];
-
-  const hasActiveOrderForTable = tableBusy;
-  // the table is fixed when it came from a QR code, or while this table has an order in progress
-  const tableLocked = !!lockedTable || hasActiveOrderForTable;
-  const tableLockReason = lockedTable ? 'QR code' : 'active order';
+  // this customer's own orders, newest first
+  const visibleOrders = Object.keys(myData)
+    .map(k => ({ id: k, ...myData[k] }))
+    .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+  // this phone ordered for this table recently, so it is allowed past the 'already booked' screen
+  const hasMyOrderHere = !!tableName && myKeys.some(x => x.t === tableName && Date.now() - Number(x.ts || 0) < ACTIVE_MAX_MS);
 
   const withImages = menuItems.filter(i => i.image);
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
@@ -553,7 +611,7 @@ export default function CustomerMenu() {
   // Scanning the QR code of a table that already has an order in progress:
   // show a full-screen "already booked" message instead of the menu.
   const gateStyle = { backgroundImage: PATTERN };
-  if (lockedTable && !ordersLoaded) {
+  if (lockedTable && !statusLoaded) {
     return (
       <div className="min-h-screen bg-[#f2b632] flex items-center justify-center f-body text-[#3a1a0b]" style={gateStyle}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap'); .f-slab{font-family:'Alfa Slab One',Georgia,serif;font-weight:400}.f-cond{font-family:'Oswald','Arial Narrow',sans-serif}.f-body{font-family:'Montserrat',system-ui,sans-serif}`}</style>
@@ -561,8 +619,8 @@ export default function CustomerMenu() {
       </div>
     );
   }
-  if (lockedTable && tableBusy && !trackOnly) {
-    const freeTables = TABLES.filter(t => !allOrders.some(o => o.tableName === t && isLiveOrder(o)));
+  if (lockedTable && tableBusy && !trackOnly && !hasMyOrderHere) {
+    const freeTables = TABLES.filter(t => !isTableBusy(tableStatus[t]));
     return (
       <div className="min-h-screen bg-[#f2b632] flex items-center justify-center p-5 f-body text-[#3a1a0b]" style={gateStyle}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap'); .f-slab{font-family:'Alfa Slab One',Georgia,serif;font-weight:400}.f-cond{font-family:'Oswald','Arial Narrow',sans-serif}.f-body{font-family:'Montserrat',system-ui,sans-serif}`}</style>
@@ -584,12 +642,6 @@ export default function CustomerMenu() {
               ? <>Free tables: <strong>{freeTables.join(', ')}</strong>. Please scan the QR code on one of those, or ask our staff.</>
               : <>All tables are busy at the moment. Please ask our staff.</>}
           </p>
-          <button
-            onClick={() => setTrackOnly(true)}
-            className="w-full py-3 f-cond uppercase tracking-widest text-xs border-2 border-[#3a1a0b]/30 hover:border-[#3a1a0b] transition-colors"
-          >
-            This is my table: follow my order
-          </button>
         </motion.div>
       </div>
     );
@@ -690,7 +742,7 @@ export default function CustomerMenu() {
               <Lock className="w-4 h-4 flex-shrink-0 text-[#f2b632]" />
               <span className="flex-1 min-w-[220px]">
                 <strong>{tableName}</strong> is in use (
-                {isRobotStillOut(activeOrderForTable) ? 'robot returning to the kitchen' : (activeOrderForTable.status || 'PENDING')}
+                {tableRobotOut ? 'robot returning to the kitchen' : 'order in progress'}
                 ). New orders for this table open again once the order is served and our robot is back in the kitchen.
               </span>
               <button
@@ -699,14 +751,6 @@ export default function CustomerMenu() {
               >
                 Follow order
               </button>
-              {!lockedTable && (
-                <button
-                  onClick={() => handleTableSelection('')}
-                  className="f-cond uppercase tracking-widest text-xs underline text-white/80"
-                >
-                  Use another table
-                </button>
-              )}
             </div>
           </motion.div>
         )}
@@ -1015,84 +1059,65 @@ export default function CustomerMenu() {
         </div>
       </section>
 
-      {/* LIVE ORDERS */}
+      {/* YOUR ORDERS: only this customer's own orders (secret link / this phone) */}
       <section id="my-orders" className="scroll-mt-16 bg-[#faf3e3] py-10 md:py-12">
         <div className={wrap}>
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
-            <div>
-              <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Kitchen</span>
-              <h2 className="f-slab text-3xl md:text-4xl mt-2">LIVE ORDERS</h2>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="f-cond uppercase tracking-widest text-xs">Table</span>
-
-              {tableLocked ? (
-                <div className="bg-white border-2 border-[#3a1a0b]/25 px-4 py-1.5 text-sm font-bold text-[#3a1a0b] min-w-[120px] text-center">
-                  {tableName}
-                </div>
-              ) : (
-                <select
-                  value={tableName}
-                  onChange={(e) => handleTableSelection(e.target.value)}
-                  className="bg-white border-2 border-[#3a1a0b]/25 px-3 py-1.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
-                >
-                  <option value="">Choose table</option>
-                  {TABLES.map(tbl => (
-                    <option key={tbl} value={tbl}>{tbl}</option>
-                  ))}
-                </select>
-              )}
-
-            </div>
+          <div className="mb-6">
+            <span className="inline-block f-cond uppercase tracking-widest text-xs bg-[#f2b632] px-3 py-1.5">Kitchen</span>
+            <h2 className="f-slab text-3xl md:text-4xl mt-2">YOUR ORDERS</h2>
           </div>
 
           {visibleOrders.length === 0 ? (
-            <p className="py-6 text-sm text-[#3a1a0b]/70 border-2 border-dashed border-[#3a1a0b]/20 text-center">
-              {tableName
-                ? `No recent orders for your table.${tableLocked ? '' : ' (You can change your table above if needed.)'}`
-                : 'Choose your table to see your orders.'}
+            <p className="py-6 px-4 text-sm text-[#3a1a0b]/70 border-2 border-dashed border-[#3a1a0b]/20 text-center">
+              You have no order in progress. After you order, you can follow it here, and from the link in your receipt email.
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {visibleOrders.map((order) => (
-                <motion.div
-                  key={order.id}
-                  initial={{ opacity: 0, y: 24 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  className="bg-white border-t-4 border-[#3a1a0b] shadow-sm p-4 space-y-3"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="f-cond uppercase text-xl leading-none">{order.tableName}</p>
-                      <p className="text-xs text-[#3a1a0b]/70 mt-1">{new Date(order.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                    <span className={`f-cond uppercase tracking-widest text-xs px-2.5 py-1 ${statusStyle(order.status)}`}>
-                      {order.status || 'PENDING'}
-                    </span>
+                order.ended ? (
+                  <div key={order.id} className="bg-white border-t-4 border-[#3a1a0b]/30 shadow-sm p-4 text-sm text-[#3a1a0b]/80">
+                    This order has already been served, or its link has expired. Thank you for visiting SmartBistro!
                   </div>
-
-                  <OrderProgress status={order.status} />
-
-                  <div className="space-y-1.5 border-t border-dashed border-[#3a1a0b]/30 pt-3">
-                    {order.items?.map((it, idx) => (
-                      <div key={idx} className="text-sm">
-                        <div className="flex justify-between">
-                          <span>{it.qty} × {it.name}</span>
-                          <span className="text-[#3a1a0b]/75">LKR {it.price * it.qty}</span>
-                        </div>
-                        {it.note && (
-                          <p className="text-xs italic text-[#d92b2b] mt-0.5">“{it.note}”</p>
-                        )}
+                ) : (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 24 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    className="bg-white border-t-4 border-[#3a1a0b] shadow-sm p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="f-cond uppercase text-xl leading-none">{order.tableName}</p>
+                        <p className="text-xs text-[#3a1a0b]/70 mt-1">{order.timestamp ? new Date(order.timestamp).toLocaleTimeString() : ''}</p>
                       </div>
-                    ))}
-                  </div>
+                      <span className={`f-cond uppercase tracking-widest text-xs px-2.5 py-1 ${statusStyle(order.status)}`}>
+                        {order.status || 'PENDING'}
+                      </span>
+                    </div>
 
-                  <div className="border-t border-dashed border-[#3a1a0b]/30 pt-3 flex items-baseline justify-between">
-                    <span className="f-cond uppercase tracking-widest text-xs">Total</span>
-                    <span className="f-slab text-lg text-[#d92b2b]">LKR {order.total}</span>
-                  </div>
-                </motion.div>
+                    <OrderProgress status={order.status} />
+
+                    <div className="space-y-1.5 border-t border-dashed border-[#3a1a0b]/30 pt-3">
+                      {order.items?.map((it, idx) => (
+                        <div key={idx} className="text-sm">
+                          <div className="flex justify-between">
+                            <span>{it.qty} × {it.name}</span>
+                            <span className="text-[#3a1a0b]/75">LKR {it.price * it.qty}</span>
+                          </div>
+                          {it.note && (
+                            <p className="text-xs italic text-[#d92b2b] mt-0.5">“{it.note}”</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="border-t border-dashed border-[#3a1a0b]/30 pt-3 flex items-baseline justify-between">
+                      <span className="f-cond uppercase tracking-widest text-xs">Total</span>
+                      <span className="f-slab text-lg text-[#d92b2b]">LKR {order.total}</span>
+                    </div>
+                  </motion.div>
+                )
               ))}
             </div>
           )}
@@ -1346,26 +1371,14 @@ export default function CustomerMenu() {
               <div className="px-5 py-4 space-y-1.5 border-b border-[#3a1a0b]/10">
                 <label className="f-cond uppercase tracking-widest text-xs">Your table</label>
 
-                {tableLocked ? (
+                {tableName ? (
                   <div className="w-full bg-[#faf3e3] border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm font-bold text-[#3a1a0b]">
-                    {tableName} (locked · {tableLockReason})
+                    {tableName} (from your table's QR code)
                   </div>
                 ) : (
-                  <select
-                    value={tableName}
-                    onChange={(e) => handleTableSelection(e.target.value)}
-                    className="w-full bg-white border-2 border-[#3a1a0b]/25 px-3 py-2.5 text-sm focus:outline-none focus:border-[#3a1a0b]"
-                  >
-                    <option value="">Choose your table</option>
-                    {TABLES.map(tbl => {
-                      const isOccupied = allOrders.some(o => o.tableName === tbl && isLiveOrder(o));
-                      return (
-                        <option key={tbl} value={tbl} disabled={isOccupied}>
-                          {tbl}{isOccupied ? ' (occupied)' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div className="w-full bg-[#faf3e3] border-2 border-dashed border-[#d92b2b]/50 px-3 py-2.5 text-sm text-[#3a1a0b]">
+                    Please scan the QR code on your table to order.
+                  </div>
                 )}
 
               </div>
@@ -1415,7 +1428,7 @@ export default function CustomerMenu() {
                   <span className="f-slab text-2xl text-[#d92b2b]">LKR {calculateTotal()}</span>
                 </div>
                 <button
-                  disabled={loading || cart.length === 0 || tableBusy}
+                  disabled={loading || cart.length === 0 || tableBusy || !tableName}
                   onClick={handleCheckout}
                   className="w-full py-3.5 f-cond uppercase tracking-widest text-sm bg-[#d92b2b] text-white hover:bg-[#b82020] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >

@@ -781,6 +781,8 @@ export default function AdminPanel() {
   const [liveSort, setLiveSort] = useState('newest'); // 'newest' | 'oldest'
   const WEIGHT_LIMIT = 200;
 
+  const [tableStatus, setTableStatus] = useState({});
+
   const [robotStatusData, setRobotStatusData] = useState({
     battery: 0,
     assignedTable: 'None',
@@ -852,6 +854,11 @@ export default function AdminPanel() {
       setRobotWeight(weight !== null ? Number(weight) : 0);
     });
 
+    const tableStatusRef = ref(db, 'tableStatus');
+    const unsubscribeTableStatus = onValue(tableStatusRef, (snapshot) => {
+      setTableStatus(snapshot.val() || {});
+    });
+
     const robotStatusRef = ref(db, 'robotStatus');
     const unsubscribeRobotStatus = onValue(robotStatusRef, (snapshot) => {
       const data = snapshot.val();
@@ -883,6 +890,7 @@ export default function AdminPanel() {
       unsubscribeMenu();
       unsubscribeWeight();
       unsubscribeRobotStatus();
+      unsubscribeTableStatus();
       unsubscribeReviews();
       unsubscribeNewsletters();
     };
@@ -927,7 +935,22 @@ export default function AdminPanel() {
 
     try {
       const updates = { [`orders/${order.id}/status`]: action.status };
-      if (action.status === 'SERVED') updates[`orders/${order.id}/servedAt`] = Date.now();
+      // keep the customer's private tracking record in step with the order
+      if (order.trackKey) {
+        updates[`orderTracking/${order.trackKey}/status`] = action.status;
+      }
+      if (action.status === 'SERVED') {
+        const now = Date.now();
+        updates[`orders/${order.id}/servedAt`] = now;
+        if (order.trackKey) {
+          updates[`orderTracking/${order.trackKey}/active`] = false; // the customer's link stops working once served
+          updates[`orderTracking/${order.trackKey}/servedAt`] = now;
+        }
+        // the table stays locked until the robot is back in the kitchen
+        if (tableStatus[order.tableName]?.orderId === order.id) {
+          updates[`tableStatus/${order.tableName}/servedAt`] = now;
+        }
+      }
       if (isDispatch) {
         updates['robotStatus/assignedTable'] = order.tableName;
         updates['robotStatus/status'] = ROBOT_DISPATCH_STATUS;
@@ -941,19 +964,29 @@ export default function AdminPanel() {
   };
 
   // Admin confirms the robot is back in the kitchen, which opens the table for new orders
-  const handleRobotReturned = async (order) => {
+  const handleRobotReturned = async (tableName) => {
     try {
-      await update(ref(db, `orders/${order.id}`), { robotReturnedAt: Date.now() });
+      const st = tableStatus[tableName] || {};
+      const updates = { [`tableStatus/${tableName}/busy`]: false };
+      if (st.orderId) updates[`orders/${st.orderId}/robotReturnedAt`] = Date.now();
+      await update(ref(db), updates);
     } catch (err) {
       console.error(err);
-      setAlertMessage('Failed to update the order.');
+      setAlertMessage('Failed to update the table.');
     }
   };
 
   const handleDeleteOrder = async (orderId) => {
     if (window.confirm('Are you sure you want to delete this order?')) {
       try {
-        await remove(ref(db, `orders/${orderId}`));
+        const order = orders.find(o => o.id === orderId) || {};
+        const updates = { [`orders/${orderId}`]: null, [`orderLocks/${orderId}`]: null };
+        if (order.trackKey) updates[`orderTracking/${order.trackKey}`] = null;
+        // deleting the order that holds a table frees that table
+        if (order.tableName && tableStatus[order.tableName]?.orderId === orderId) {
+          updates[`tableStatus/${order.tableName}/busy`] = false;
+        }
+        await update(ref(db), updates);
       } catch (err) {
         console.error(err);
         setAlertMessage('Failed to delete order.');
@@ -1205,11 +1238,10 @@ export default function AdminPanel() {
   }
 
   const activeOrders = orders.filter(o => getStage(o.status) < 4);
-  // served, but the robot has not come back to the kitchen yet
-  const waitingForRobot = orders.filter(o =>
-    getStage(o.status) === 4 && !o.robotReturnedAt &&
-    Date.now() - Number(o.servedAt || o.timestamp || 0) < RETURN_MAX_MS
-  );
+  // tables whose food was served but whose robot has not come back to the kitchen yet
+  const waitingForRobot = Object.entries(tableStatus)
+    .filter(([, st]) => st && st.busy && st.servedAt && Date.now() - Number(st.servedAt) < RETURN_MAX_MS)
+    .map(([tableName, st]) => ({ tableName, orderId: st.orderId }));
 
   const statusFilters = [
     { id: 'active', label: 'Active', count: activeOrders.length },
@@ -1329,12 +1361,12 @@ export default function AdminPanel() {
                   Waiting for the robot to return to the kitchen ({waitingForRobot.length})
                 </p>
                 {waitingForRobot.map(o => (
-                  <div key={o.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                  <div key={o.tableName} className="flex flex-wrap items-center justify-between gap-3 text-sm">
                     <span>
-                      <strong>{o.tableName}</strong> · #{orderNo(o)} · served. This table stays locked for new orders.
+                      <strong>{o.tableName}</strong> · served. This table stays locked for new orders.
                     </span>
                     <button
-                      onClick={() => handleRobotReturned(o)}
+                      onClick={() => handleRobotReturned(o.tableName)}
                       className="f-cond uppercase tracking-widest text-xs px-4 py-2 bg-[#1f5f8b] text-white hover:bg-[#164a6e] transition-colors"
                     >
                       Robot returned
@@ -1485,7 +1517,7 @@ export default function AdminPanel() {
                           {stage === 4 && (
                             <div className="flex-1 py-3 text-xs flex items-center justify-center gap-1.5 text-[#3a1a0b]/60">
                               <CheckCircle className="w-4 h-4" />
-                              {order.robotReturnedAt ? 'Served · table is free' : 'Served · waiting for robot'}
+                              {tableStatus[order.tableName]?.busy && tableStatus[order.tableName]?.orderId === order.id ? 'Served · waiting for robot' : 'Served · table is free'}
                             </div>
                           )}
                           <button
