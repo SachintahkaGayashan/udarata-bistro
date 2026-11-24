@@ -21,6 +21,37 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // A random secret is made in the browser for every order. Only its SHA-256 hash
 // is saved in the database (orderLocks/<orderId>); the secret itself goes only
 // into the QR code in the customer's receipt email.
+// ---- Receipt email: item rows with a small food picture ----------------------
+// Everything that goes into the email HTML is escaped, because notes are typed by customers.
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const emailImgUrl = (url) => {
+  let u = String(url || '').trim();
+  if (!u) return '';
+  if (u.startsWith('/')) u = `${window.location.origin}${u}`;   // dish photo stored on this site
+  if (!/^https:\/\//i.test(u)) return '';                        // only https pictures
+  // Cloudinary: ask for a small square JPG so the email stays light
+  if (u.includes('res.cloudinary.com') && u.includes('/upload/')) {
+    u = u.replace('/upload/', '/upload/w_160,h_160,c_fill,q_auto,f_jpg/');
+  }
+  return u;
+};
+const buildItemsHtml = (items) =>
+  '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">' +
+  items.map(it => {
+    const img = emailImgUrl(it.image);
+    const line = Number(it.price) * Number(it.qty);
+    return '<tr>' +
+      `<td width="76" style="padding:10px 12px 10px 0;vertical-align:top;border-bottom:1px dashed #d8cdb8;">${
+        img ? `<img src="${escHtml(img)}" width="64" height="64" alt="${escHtml(it.name)}" style="display:block;width:64px;height:64px;border:0;border-radius:8px;" />` : ''
+      }</td>` +
+      `<td style="padding:10px 8px 10px 0;vertical-align:top;font-size:14px;line-height:1.5;border-bottom:1px dashed #d8cdb8;"><strong>${escHtml(it.qty)} &times; ${escHtml(it.name)}</strong>${
+        it.note ? `<br /><span style="font-size:12px;color:#d92b2b;font-style:italic;">Note: ${escHtml(it.note)}</span>` : ''
+      }</td>` +
+      `<td style="padding:10px 0;vertical-align:top;text-align:right;white-space:nowrap;font-size:14px;border-bottom:1px dashed #d8cdb8;">LKR ${escHtml(line)}</td>` +
+    '</tr>';
+  }).join('') +
+  '</table>';
+
 const randomHex = (bytes) =>
   Array.from(crypto.getRandomValues(new Uint8Array(bytes)), b => b.toString(16).padStart(2, '0')).join('');
 const sha256Hex = async (text) => {
@@ -473,6 +504,7 @@ export default function CustomerMenu() {
               order_date: when.toLocaleDateString('en-GB'),
               order_time: when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               items_text: itemsText,
+              items_html: buildItemsHtml(items),
               total: `LKR ${total}`,
               payment: 'Pay at the counter',
               qr_url: `${window.location.origin}/api/qr?d=${encodeURIComponent(`SB1.${newOrderRef.key}.${unlockToken}`)}`,
