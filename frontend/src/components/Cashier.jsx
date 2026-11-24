@@ -19,6 +19,14 @@ const dayOf = (ts) => {
 };
 const COLLECT_WINDOW_MS = 48 * 60 * 60 * 1000; // older unpaid orders are not listed (they are test/old data)
 const QUICK = [1000, 2000, 5000];
+const statusLabel = (st) => {
+  const u = String(st || '').toUpperCase();
+  if (u === 'PENDING') return ['New order', 'bg-[#f2b632] text-[#3a1a0b]'];
+  if (u === 'PREPARING') return ['Preparing', 'bg-[#3a1a0b] text-[#f2b632]'];
+  if (u === 'READY') return ['Ready', 'bg-[#2e7d32] text-white'];
+  if (u === 'CONFIRMED & DISPATCHED' || u === 'DELIVERING') return ['On the way', 'bg-[#1565c0] text-white'];
+  return [st, 'bg-gray-300 text-[#3a1a0b]'];
+};
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Oswald:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap');
 .f-slab{font-family:'Alfa Slab One',Georgia,serif;font-weight:400}.f-cond{font-family:'Oswald','Arial Narrow',sans-serif}.f-body{font-family:'Montserrat',system-ui,sans-serif}`;
@@ -100,7 +108,11 @@ export default function Cashier() {
     .filter(o => !q || `${o.tableName || ''} ${orderNo(o)}`.toLowerCase().includes(q))
     .sort((a, b) => Number(a.servedAt || a.timestamp || 0) - Number(b.servedAt || b.timestamp || 0)), [orders, q]);
 
-  const inProgress = orders.filter(o => o.status && !isServed(o) && !o.payment && Date.now() - Number(o.timestamp || 0) < 12 * 60 * 60 * 1000).length;
+  const progressList = useMemo(() => orders
+    .filter(o => o.status && !isServed(o) && !o.payment && Date.now() - Number(o.timestamp || 0) < 12 * 60 * 60 * 1000)
+    .filter(o => !q || `${o.tableName || ''} ${orderNo(o)}`.toLowerCase().includes(q))
+    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0)), [orders, q]);
+  const inProgress = progressList.length;
 
   const paidOnDay = useMemo(() => orders
     .filter(o => o.payment && dayOf(o.payment.paidAt) === day)
@@ -214,7 +226,7 @@ export default function Cashier() {
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
         <div className="flex gap-2">
-          {[['collect', `To collect (${toCollect.length})`], ['summary', 'Daily summary']].map(([id, label]) => (
+          {[['collect', `To collect (${toCollect.length})`], ['progress', `In progress (${inProgress})`], ['summary', 'Daily summary']].map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -226,6 +238,50 @@ export default function Cashier() {
             </button>
           ))}
         </div>
+
+        {tab === 'progress' && (
+          <>
+            <div className="relative max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#3a1a0b]/50" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search table or order no…" className={`${inp} pl-9`} />
+            </div>
+            {progressList.length === 0 ? (
+              <p className="py-12 text-center text-sm text-[#3a1a0b]/70 border-2 border-dashed border-[#3a1a0b]/20">
+                No orders are being prepared or delivered right now.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {progressList.map(o => {
+                  const [label, cls] = statusLabel(o.status);
+                  return (
+                    <div key={o.id} className="bg-white border-t-4 border-[#f2b632] shadow-sm p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="f-slab text-2xl leading-none">{o.tableName}</p>
+                          <p className="text-xs text-[#3a1a0b]/70 mt-1">#{orderNo(o)} · ordered {new Date(o.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                        <span className={`f-cond uppercase tracking-widest text-[10px] px-2 py-1 ${cls}`}>{label}</span>
+                      </div>
+                      <div className="space-y-1 border-t border-dashed border-[#3a1a0b]/30 pt-3 text-sm">
+                        {(o.items || []).map((it, i) => (
+                          <div key={i} className="flex justify-between gap-3">
+                            <span>{it.qty} × {it.name}</span>
+                            <span className="text-[#3a1a0b]/75 whitespace-nowrap">{fmt(Number(it.price) * Number(it.qty))}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-dashed border-[#3a1a0b]/30 pt-3 flex items-baseline justify-between">
+                        <span className="f-cond uppercase tracking-widest text-xs">Total</span>
+                        <span className="f-slab text-xl">{fmt(o.total)}</span>
+                      </div>
+                      <p className="text-xs text-[#3a1a0b]/60">Payment opens after the order is served.</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
 
         {tab === 'collect' && (
           <>
