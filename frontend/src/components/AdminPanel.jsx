@@ -15,6 +15,8 @@ const TAG_OPTIONS = ['veg', 'spicy', 'popular'];
 const EMPTY_FOOD = { name: '', price: '', category: 'Mains', image: '', desc: '', tags: [], soldOut: false };
 
 const ROBOT_DISPATCH_STATUS = 'DELIVERING';
+// A served order keeps its table locked until the robot is back in the kitchen (safety limit: 60 min)
+const RETURN_MAX_MS = 60 * 60 * 1000;
 
 // Image upload (Cloudinary, unsigned preset). Both values are public, never put an API secret here.
 const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -920,6 +922,7 @@ export default function AdminPanel() {
 
     try {
       const updates = { [`orders/${order.id}/status`]: action.status };
+      if (action.status === 'SERVED') updates[`orders/${order.id}/servedAt`] = Date.now();
       if (isDispatch) {
         updates['robotStatus/assignedTable'] = order.tableName;
         updates['robotStatus/status'] = ROBOT_DISPATCH_STATUS;
@@ -929,6 +932,16 @@ export default function AdminPanel() {
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to update order status.');
+    }
+  };
+
+  // Admin confirms the robot is back in the kitchen, which opens the table for new orders
+  const handleRobotReturned = async (order) => {
+    try {
+      await update(ref(db, `orders/${order.id}`), { robotReturnedAt: Date.now() });
+    } catch (err) {
+      console.error(err);
+      setAlertMessage('Failed to update the order.');
     }
   };
 
@@ -1170,6 +1183,11 @@ export default function AdminPanel() {
   }
 
   const activeOrders = orders.filter(o => getStage(o.status) < 4);
+  // served, but the robot has not come back to the kitchen yet
+  const waitingForRobot = orders.filter(o =>
+    getStage(o.status) === 4 && !o.robotReturnedAt &&
+    Date.now() - Number(o.servedAt || o.timestamp || 0) < RETURN_MAX_MS
+  );
 
   const statusFilters = [
     { id: 'active', label: 'Active', count: activeOrders.length },
@@ -1282,6 +1300,27 @@ export default function AdminPanel() {
                 <span className="sm:hidden f-cond uppercase tracking-wider text-xs">Load {robotWeight}g</span>
               </div>
             </div>
+
+            {waitingForRobot.length > 0 && (
+              <div className="bg-white border-l-4 border-[#1f5f8b] shadow-sm px-4 py-3 space-y-2">
+                <p className="f-cond uppercase tracking-widest text-xs text-[#1f5f8b]">
+                  Waiting for the robot to return to the kitchen ({waitingForRobot.length})
+                </p>
+                {waitingForRobot.map(o => (
+                  <div key={o.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <span>
+                      <strong>{o.tableName}</strong> · #{orderNo(o)} · served. This table stays locked for new orders.
+                    </span>
+                    <button
+                      onClick={() => handleRobotReturned(o)}
+                      className="f-cond uppercase tracking-widest text-xs px-4 py-2 bg-[#1f5f8b] text-white hover:bg-[#164a6e] transition-colors"
+                    >
+                      Robot returned
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Filters */}
             <div className="bg-white border border-[#3a1a0b]/15 p-4 space-y-3">
@@ -1423,7 +1462,8 @@ export default function AdminPanel() {
                           )}
                           {stage === 4 && (
                             <div className="flex-1 py-3 text-xs flex items-center justify-center gap-1.5 text-[#3a1a0b]/60">
-                              <CheckCircle className="w-4 h-4" /> Served · table is free
+                              <CheckCircle className="w-4 h-4" />
+                              {order.robotReturnedAt ? 'Served · table is free' : 'Served · waiting for robot'}
                             </div>
                           )}
                           <button

@@ -89,7 +89,14 @@ const RECENT_MS = 3 * 60 * 60 * 1000;
 // An unfinished order only blocks its table for this long, so one forgotten order
 // (never marked served) cannot keep a table locked for days.
 const ACTIVE_MAX_MS = 12 * 60 * 60 * 1000;
-const isLiveOrder = (o) => isActiveOrder(o) && Date.now() - Number(o.timestamp || 0) < ACTIVE_MAX_MS;
+// After the food is served, the table stays locked until the robot is back in the kitchen
+// (the robot or the admin sets robotReturnedAt). Safety limit: 60 minutes after serving.
+const RETURN_MAX_MS = 60 * 60 * 1000;
+const isRobotStillOut = (o) =>
+  !isActiveOrder(o) && !!o.status && !o.robotReturnedAt &&
+  Date.now() - Number(o.servedAt || o.timestamp || 0) < RETURN_MAX_MS;
+const isLiveOrder = (o) =>
+  (isActiveOrder(o) && Date.now() - Number(o.timestamp || 0) < ACTIVE_MAX_MS) || isRobotStillOut(o);
 
 // Works with the short link (/table01) and the older /?table=Table 01 link
 const getTableFromUrl = () => {
@@ -282,7 +289,7 @@ export default function CustomerMenu() {
   const addToCart = (item) => {
     if (item.soldOut) return;
     if (tableBusy) {
-      setAlertMessage(`${tableName} already has an order in progress. You can order again once it has been served.`);
+      setAlertMessage(`${tableName} already has an order in progress. You can order again once it has been served and our robot is back in the kitchen.`);
       return;
     }
     setCart(prev => {
@@ -565,7 +572,7 @@ export default function CustomerMenu() {
             <h1 className="f-slab text-3xl text-[#d92b2b] leading-tight mt-1">ALREADY BOOKED</h1>
           </div>
           <p className="text-sm leading-relaxed text-[#3a1a0b]/80">
-            This table already has an order in progress, so it can't take a new order right now. It opens again once the current order has been served.
+            This table already has an order in progress, so it can't take a new order right now. It opens again once the order has been served and our robot is back in the kitchen.
           </p>
           <p className="text-sm leading-relaxed text-[#3a1a0b]/80">
             {freeTables.length > 0
@@ -677,7 +684,9 @@ export default function CustomerMenu() {
             <div className={`${wrap} py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm`}>
               <Lock className="w-4 h-4 flex-shrink-0 text-[#f2b632]" />
               <span className="flex-1 min-w-[220px]">
-                <strong>{tableName}</strong> is in use ({activeOrderForTable.status || 'PENDING'}). New orders for this table open again once the current order is served.
+                <strong>{tableName}</strong> is in use (
+                {isRobotStillOut(activeOrderForTable) ? 'robot returning to the kitchen' : (activeOrderForTable.status || 'PENDING')}
+                ). New orders for this table open again once the order is served and our robot is back in the kitchen.
               </span>
               <button
                 onClick={() => scrollToSection('my-orders')}
