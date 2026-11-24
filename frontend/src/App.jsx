@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import CustomerMenu from './components/CustomerMenu';
 import AdminPanel from './components/AdminPanel';
+import Cashier from './components/Cashier';
 import RobotFace from './components/RobotFace';
 import RobotControl from './components/RobotControl';
 
@@ -26,9 +27,12 @@ export default function App() {
         {/* Admin & Kitchen Panel View */}
         <Route path="/admin" element={<AdminPanel />} />
 
+        {/* Cashier payments page */}
+        <Route path="/cashier" element={<Cashier />} />
+
         {/* Robot Face / Smartphone Audio-Visual Display View */}
         <Route path="/robot-face" element={<RobotFace />} />
-        
+
         <Route path="/robot-control" element={<RobotControl />} />
       </Routes>
     </Router>
