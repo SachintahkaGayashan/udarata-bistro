@@ -12,6 +12,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 const TAG_OPTIONS = ['veg', 'spicy', 'popular'];
+const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Beverages'];
+// category names typed by the admin: letters, numbers, spaces, & ' - only, max 24 characters
+const cleanCategory = (v) => String(v || '').replace(/[^A-Za-z0-9&'\- ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
 const EMPTY_FOOD = { name: '', price: '', category: 'Mains', image: '', desc: '', tags: [], soldOut: false };
 
 const ROBOT_DISPATCH_STATUS = 'DELIVERING';
@@ -790,6 +793,8 @@ export default function AdminPanel() {
   const [editingFood, setEditingFood] = useState(null);
   const [foodForm, setFoodForm] = useState(EMPTY_FOOD);
   const [customTag, setCustomTag] = useState('');
+  const [newCategoryMode, setNewCategoryMode] = useState(false);
+  const [newCategoryText, setNewCategoryText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [alertMessage, setAlertMessage] = useState(''); // Custom Alert Modal State
   const [reviews, setReviews] = useState([]);
@@ -968,6 +973,15 @@ export default function AdminPanel() {
     }
 
     const { id, ...payload } = foodForm;
+    if (newCategoryMode) {
+      const typed = cleanCategory(newCategoryText);
+      if (!typed) {
+        setAlertMessage('Please type a name for the new category.');
+        return;
+      }
+      // reuse an existing category if the same name already exists (ignoring upper/lower case)
+      payload.category = allCategories.find(c => c.toLowerCase() === typed.toLowerCase()) || typed;
+    }
     payload.tags = normalizeTags(payload.tags);
     payload.soldOut = !!payload.soldOut;
     // remember when the price last changed, so orders placed before that are not flagged as mismatches
@@ -1090,6 +1104,14 @@ export default function AdminPanel() {
     });
     setCustomTag('');
   };
+
+  useEffect(() => { setNewCategoryMode(false); setNewCategoryText(''); }, [isModalOpen]);
+
+  const allCategories = [...new Set([
+    ...DEFAULT_CATEGORIES,
+    ...menuItems.map(i => i.category).filter(Boolean),
+    ...(foodForm.category && !newCategoryMode ? [foodForm.category] : []),
+  ])];
 
   const allTagOptions = [...new Set([
     ...TAG_OPTIONS,
@@ -1801,14 +1823,32 @@ export default function AdminPanel() {
                   <div>
                     <label className={lbl}>Category</label>
                     <select
-                      value={foodForm.category}
-                      onChange={(e) => setFoodForm({ ...foodForm, category: e.target.value })}
+                      value={newCategoryMode ? '__new__' : foodForm.category}
+                      onChange={(e) => {
+                        if (e.target.value === '__new__') {
+                          setNewCategoryMode(true);
+                          setNewCategoryText('');
+                        } else {
+                          setNewCategoryMode(false);
+                          setFoodForm({ ...foodForm, category: e.target.value });
+                        }
+                      }}
                       className={inp}
                     >
-                      <option value="Mains">Mains</option>
-                      <option value="Appetizers">Appetizers</option>
-                      <option value="Beverages">Beverages</option>
+                      {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                      <option value="__new__">+ New category…</option>
                     </select>
+                    {newCategoryMode && (
+                      <input
+                        type="text"
+                        autoFocus
+                        maxLength={24}
+                        value={newCategoryText}
+                        onChange={(e) => setNewCategoryText(e.target.value)}
+                        placeholder="e.g. Desserts"
+                        className={`${inp} mt-2`}
+                      />
+                    )}
                   </div>
                 </div>
 

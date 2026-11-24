@@ -43,7 +43,7 @@ function SiteImg({ src, fallback, ...props }) {
   return <img src={failed ? fallback : src} onError={() => setFailed(true)} {...props} />;
 }
 
-const CATEGORIES = ['All', 'Mains', 'Appetizers', 'Beverages'];
+const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Beverages'];
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 
 const NAV = [
@@ -275,8 +275,13 @@ export default function CustomerMenu() {
     setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
   };
 
+  // category buttons come from the menu itself, so a new category appears as soon as a dish uses it
+  const itemCategories = [...new Set(menuItems.map(i => i.category).filter(Boolean))];
+  const CATEGORIES = ['All', ...DEFAULT_CATEGORIES.filter(c => itemCategories.includes(c)), ...itemCategories.filter(c => !DEFAULT_CATEGORIES.includes(c))];
+  const categoryFilter = CATEGORIES.includes(activeCategory) ? activeCategory : 'All';
+
   const filteredItems = menuItems.filter(item => {
-    if (activeCategory !== 'All' && item.category !== activeCategory) return false;
+    if (categoryFilter !== 'All' && item.category !== categoryFilter) return false;
     const q = search.trim().toLowerCase();
     if (q && !`${item.name || ''} ${item.desc || ''} ${item.category || ''}`.toLowerCase().includes(q)) return false;
     if (activeTags.length > 0) {
@@ -886,7 +891,7 @@ export default function CustomerMenu() {
                 key={category}
                 onClick={() => setActiveCategory(category)}
                 className={`f-cond uppercase tracking-widest text-sm px-5 py-2 border-2 transition-colors ${
-                  activeCategory === category
+                  categoryFilter === category
                     ? 'bg-[#3a1a0b] border-[#3a1a0b] text-[#f2b632]'
                     : 'border-[#3a1a0b]/25 hover:border-[#3a1a0b]'
                 }`}
