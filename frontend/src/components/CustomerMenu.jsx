@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star, Lock, QrCode, Bot, Leaf } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Check, X, Utensils, Search, AlertCircle, Star, Lock, QrCode, Bot, Leaf, ChevronUp } from 'lucide-react';
 import { getDatabase, ref, push, set, onValue } from 'firebase/database';
 import { motion, AnimatePresence } from 'framer-motion';
 import emailjs from '@emailjs/browser';
@@ -74,7 +74,9 @@ function SiteImg({ src, fallback, ...props }) {
   return <img src={failed ? fallback : src} onError={() => setFailed(true)} {...props} />;
 }
 
-const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Beverages'];
+const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Desserts', 'Beverages'];
+// old menu data may say 'Desert'; always show the correct spelling
+const catOf = (i) => (String(i.category || '').trim().toLowerCase() === 'desert' ? 'Desserts' : i.category);
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 
 const NAV = [
@@ -232,6 +234,13 @@ export default function CustomerMenu() {
   const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
   const [showCart, setShowCart] = useState(false);
+  const [showTop, setShowTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 700);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
   const [search, setSearch] = useState('');
   const [activeTags, setActiveTags] = useState([]);
   const [alertMessage, setAlertMessage] = useState('');
@@ -339,12 +348,12 @@ export default function CustomerMenu() {
   };
 
   // category buttons come from the menu itself, so a new category appears as soon as a dish uses it
-  const itemCategories = [...new Set(menuItems.map(i => i.category).filter(Boolean))];
+  const itemCategories = [...new Set(menuItems.map(catOf).filter(Boolean))];
   const CATEGORIES = ['All', ...DEFAULT_CATEGORIES.filter(c => itemCategories.includes(c)), ...itemCategories.filter(c => !DEFAULT_CATEGORIES.includes(c))];
   const categoryFilter = CATEGORIES.includes(activeCategory) ? activeCategory : 'All';
 
   const filteredItems = menuItems.filter(item => {
-    if (categoryFilter !== 'All' && item.category !== categoryFilter) return false;
+    if (categoryFilter !== 'All' && catOf(item) !== categoryFilter) return false;
     const q = search.trim().toLowerCase();
     if (q && !`${item.name || ''} ${item.desc || ''} ${item.category || ''}`.toLowerCase().includes(q)) return false;
     if (activeTags.length > 0) {
@@ -623,6 +632,9 @@ export default function CustomerMenu() {
   // this phone ordered for this table recently, so it is allowed past the 'already booked' screen
   const hasMyOrderHere = !!tableName && myKeys.some(x => x.t === tableName && Date.now() - Number(x.ts || 0) < ACTIVE_MAX_MS);
 
+  // 'Orders' only appears in the menu once this customer has an order
+  const navItems = NAV.filter(t => t.id !== 'my-orders' || visibleOrders.length > 0);
+
   const withImages = menuItems.filter(i => i.image);
   const pickImg = (n) => (withImages.length ? withImages[n % withImages.length].image : FALLBACK_IMG);
   const heroImg = pickImg(0);
@@ -711,7 +723,7 @@ export default function CustomerMenu() {
 
           <div className="flex items-center gap-6">
             <nav className="hidden md:flex items-center gap-6">
-              {NAV.map(tab => (
+              {navItems.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => scrollToSection(tab.id)}
@@ -748,7 +760,7 @@ export default function CustomerMenu() {
 
       {/* MOBILE BOTTOM NAVIGATION */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#3a1a0b] z-40 px-3 py-3 flex justify-between">
-        {NAV.map(tab => (
+        {navItems.map(tab => (
           <button
             key={tab.id}
             onClick={() => scrollToSection(tab.id)}
@@ -823,7 +835,7 @@ export default function CustomerMenu() {
               <span className="block text-6xl md:text-8xl">TASTE</span>
               <span className="block text-4xl md:text-6xl mt-1">THE FUTURE</span>
             </motion.h1>
-            <motion.p variants={fadeUp} className="text-sm md:text-base max-w-md leading-relaxed text-[#3a1a0b]/80 font-medium">
+            <motion.p variants={fadeUp} className="text-base md:text-lg max-w-md leading-relaxed text-[#3a1a0b] font-medium">
               Relaxed bistro dining in the heart of Kandy. Scan the code at your table, choose what you love and our kitchen and delivery robot do the rest. Pay at the counter when you're done.
             </motion.p>
             <motion.div variants={fadeUp} className="flex flex-wrap gap-3 pt-1">
@@ -844,6 +856,14 @@ export default function CustomerMenu() {
                 About us
               </motion.button>
             </motion.div>
+            <motion.ol variants={fadeUp} className="flex flex-wrap gap-x-6 gap-y-2 pt-2 f-cond uppercase tracking-widest text-xs md:text-sm">
+              {['Scan at your table', 'Pick & order', 'Pay at the counter'].map((t, i) => (
+                <li key={t} className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-[#3a1a0b] text-[#f2b632] flex items-center justify-center text-xs">{i + 1}</span>
+                  {t}
+                </li>
+              ))}
+            </motion.ol>
           </motion.div>
 
           <motion.div
@@ -1040,7 +1060,7 @@ export default function CustomerMenu() {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: '-40px' }}
                     transition={{ duration: 0.45 }}
-                    className="flex flex-col items-center text-center"
+                    className="flex flex-col items-center text-center h-full"
                   >
                     <motion.div
                       whileHover={{ scale: 1.08, rotate: 4 }}
@@ -1051,25 +1071,24 @@ export default function CustomerMenu() {
                     </motion.div>
                     <div className="w-28 h-3 rounded-[50%] bg-[#3a1a0b]/20 blur-md mt-2" />
                     <h3 className="f-cond uppercase text-lg md:text-xl mt-3 leading-tight">{item.name}</h3>
-                    <p className="text-[13px] text-[#3a1a0b]/80 mt-1.5 line-clamp-2 max-w-[15rem] leading-relaxed">{item.desc}</p>
-                    {getTags(item).length > 0 && (
-                      <div className="flex flex-wrap justify-center gap-1.5 mt-2">
-                        {getTags(item).map(t => (
-                          <span key={t} className={`f-cond uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-sm ${tagStyle(t)}`}>
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-[13px] text-[#3a1a0b]/80 mt-1.5 line-clamp-2 max-w-[15rem] leading-relaxed min-h-[2.6rem]">{item.desc}</p>
+                    <div className="flex flex-wrap justify-center content-start gap-1.5 mt-2 min-h-[1.5rem]">
+                      {getTags(item).map(t => (
+                        <span key={t} className={`f-cond uppercase tracking-widest text-[11px] px-2 py-0.5 rounded-sm ${tagStyle(t)}`}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
                     <p className="f-slab text-lg text-[#d92b2b] mt-2">LKR {item.price}</p>
+                    <div className="mt-auto pt-3 w-full flex justify-center">
                     {inCart > 0 ? (
-                      <div className="mt-3 flex items-center bg-[#3a1a0b] text-white">
-                        <button onClick={() => updateQty(item.id, -1)} className="px-3 py-2 hover:bg-white/10" aria-label="Decrease">
-                          <Minus className="w-3.5 h-3.5" />
+                      <div className="flex items-center bg-[#3a1a0b] text-white min-h-[44px]">
+                        <button onClick={() => updateQty(item.id, -1)} className="px-4 min-h-[44px] hover:bg-white/10" aria-label="Decrease">
+                          <Minus className="w-4 h-4" />
                         </button>
                         <span className="f-cond w-8 text-center">{inCart}</span>
-                        <button onClick={() => updateQty(item.id, 1)} className="px-3 py-2 hover:bg-white/10" aria-label="Increase">
-                          <Plus className="w-3.5 h-3.5" />
+                        <button onClick={() => updateQty(item.id, 1)} className="px-4 min-h-[44px] hover:bg-white/10" aria-label="Increase">
+                          <Plus className="w-4 h-4" />
                         </button>
                       </div>
                     ) : (
@@ -1078,11 +1097,12 @@ export default function CustomerMenu() {
                         whileTap={{ scale: 0.9 }}
                         onClick={() => addToCart(item)}
                         disabled={!!item.soldOut || tableBusy}
-                        className="f-cond uppercase tracking-widest text-xs mt-3 px-6 py-2.5 bg-[#d92b2b] text-white hover:bg-[#b82020] transition-colors disabled:bg-[#3a1a0b]/30 disabled:cursor-not-allowed"
+                        className="f-cond uppercase tracking-widest text-sm min-h-[44px] px-8 bg-[#d92b2b] text-white hover:bg-[#b82020] transition-colors disabled:bg-[#3a1a0b]/30 disabled:cursor-not-allowed"
                       >
                         {item.soldOut ? 'Sold out' : tableBusy ? 'Table in use' : 'Order now'}
                       </motion.button>
                     )}
+                    </div>
                   </motion.div>
                 );
               })
@@ -1092,6 +1112,7 @@ export default function CustomerMenu() {
       </section>
 
       {/* YOUR ORDERS: only this customer's own orders (secret link / this phone) */}
+      {visibleOrders.length > 0 && (
       <section id="my-orders" className="scroll-mt-16 bg-[#faf3e3] py-10 md:py-12">
         <div className={wrap}>
           <div className="mb-6">
@@ -1155,6 +1176,7 @@ export default function CustomerMenu() {
           )}
         </div>
       </section>
+      )}
 
       {/* REVIEWS SECTION */}
       <section id="reviews" className="scroll-mt-16 py-12 md:py-16 bg-[#f9f5ed]">
@@ -1273,8 +1295,13 @@ export default function CustomerMenu() {
               />
             </div>
             <div>
+              <label htmlFor="nl-dob" className="block f-cond uppercase tracking-widest text-xs text-[#3a1a0b]/80 mb-1.5">
+                Birthday <span className="normal-case tracking-normal">(optional, for a birthday treat)</span>
+              </label>
               <input
+                id="nl-dob"
                 type="date"
+                max={new Date().toISOString().slice(0, 10)}
                 value={newsletterDob}
                 onChange={(e) => setNewsletterDob(e.target.value)}
                 className="w-full bg-[#f7f2e8] border-2 border-[#1a5c38] px-4 py-3 text-sm text-[#3a1a0b] focus:outline-none"
@@ -1358,6 +1385,22 @@ export default function CustomerMenu() {
           © 2026 SmartBistro, Kandy
         </div>
       </footer>
+
+      {/* BACK TO TOP */}
+      <AnimatePresence>
+        {showTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            aria-label="Back to top"
+            className="fixed z-30 right-4 bottom-32 md:bottom-6 md:right-auto md:left-6 w-11 h-11 rounded-full bg-[#3a1a0b] text-[#f2b632] shadow-lg flex items-center justify-center hover:bg-[#2a1208]"
+          >
+            <ChevronUp className="w-5 h-5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* FLOATING CART BAR */}
       <AnimatePresence>
