@@ -282,6 +282,8 @@ export default function CustomerMenu() {
       setStatusLoaded(true);
       setTableStatus(snapshot.val() || {});
     }, () => setStatusLoaded(true));
+    // slow or blocked connection: do not leave the customer on 'Checking table' forever
+    const statusTimer = setTimeout(() => setStatusLoaded(true), 8000);
 
     const reviewsRef = ref(db, 'reviews');
     const unsubReviews = onValue(reviewsRef, (snapshot) => {
@@ -295,6 +297,7 @@ export default function CustomerMenu() {
     });
 
     return () => {
+      clearTimeout(statusTimer);
       unsubMenu();
       unsubStatus();
       unsubReviews();
@@ -1169,6 +1172,7 @@ export default function CustomerMenu() {
                       <span className="f-cond uppercase tracking-widest text-xs">Total</span>
                       <span className="f-slab text-lg text-[#d92b2b]">LKR {order.total}</span>
                     </div>
+
                   </motion.div>
                 )
               ))}
