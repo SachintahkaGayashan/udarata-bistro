@@ -266,38 +266,56 @@ export default function CustomerMenu() {
   useEffect(() => {
     const db = getDatabase();
 
+    // Backup path: some phones/networks never get Firebase's live connection, so the page would stay empty.
+    // Until the live listener answers, the public data is also fetched with plain HTTPS requests.
+    const live = { menu: false, status: false, reviews: false };
+    const dbUrl = String(db.app.options.databaseURL || '').replace(/\/$/, '');
+    const applyMenu = (data) => setMenuItems(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
+    const applyStatus = (data) => { setStatusLoaded(true); setTableStatus(data || {}); };
+    const applyReviews = (data) => setReviews(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).reverse() : []);
+    const restLoad = async (name, apply) => {
+      if (live[name]) return;
+      try {
+        const r = await fetch(`${dbUrl}/${name === 'status' ? 'tableStatus' : name}.json`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!live[name]) apply(data);
+      } catch (e) { /* ignore, retried below */ }
+    };
+    const restAll = () => {
+      restLoad('menu', applyMenu);
+      restLoad('status', applyStatus);
+      restLoad('reviews', applyReviews);
+    };
+    restAll();
+    const restTimer = setInterval(() => {
+      if (live.menu && live.status && live.reviews) { clearInterval(restTimer); return; }
+      restAll();
+    }, 6000);
+
     const menuRef = ref(db, 'menu');
     const unsubMenu = onValue(menuRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const itemsList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setMenuItems(itemsList);
-      } else {
-        setMenuItems([]);
-      }
+      live.menu = true;
+      applyMenu(snapshot.val());
     });
 
     const statusRef = ref(db, 'tableStatus');
     const unsubStatus = onValue(statusRef, (snapshot) => {
-      setStatusLoaded(true);
-      setTableStatus(snapshot.val() || {});
+      live.status = true;
+      applyStatus(snapshot.val());
     }, () => setStatusLoaded(true));
     // slow or blocked connection: do not leave the customer on 'Checking table' forever
     const statusTimer = setTimeout(() => setStatusLoaded(true), 8000);
 
     const reviewsRef = ref(db, 'reviews');
     const unsubReviews = onValue(reviewsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const reviewsList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setReviews(reviewsList.reverse());
-      } else {
-        setReviews([]);
-      }
+      live.reviews = true;
+      applyReviews(snapshot.val());
     });
 
     return () => {
       clearTimeout(statusTimer);
+      clearInterval(restTimer);
       unsubMenu();
       unsubStatus();
       unsubReviews();
