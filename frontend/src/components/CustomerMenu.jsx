@@ -74,10 +74,10 @@ function SiteImg({ src, fallback, ...props }) {
   return <img src={failed ? fallback : src} onError={() => setFailed(true)} {...props} />;
 }
 
-// Writes: normally through the Firebase SDK. On phones/networks where the live connection never answers
-// (the order would stay on 'Sending…' forever) the same write is sent as a plain HTTPS request instead.
+// Customers use phones, and on many phones Firebase's live connection is slow or never answers.
+// So customer writes go out as plain HTTPS requests (fast and reliable). Only if the network itself fails
+// (not if the database refuses the write) the Firebase SDK is used as a second try.
 // The database rules apply exactly the same way to both.
-let sdkWritesSlow = false;
 const restPut = async (path, value) => {
   const url = String(getDatabase().app.options.databaseURL || '').replace(/\/$/, '');
   const r = await fetch(`${url}/${path}.json`, {
@@ -85,22 +85,18 @@ const restPut = async (path, value) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(value),
   });
-  if (!r.ok) throw new Error(`Write failed (${r.status})`);
+  if (!r.ok) {
+    const err = new Error(`Write refused (${r.status})`);
+    err.refused = true;
+    throw err;
+  }
 };
 const dbWrite = async (path, value) => {
-  if (sdkWritesSlow) return restPut(path, value);
-  const pending = set(ref(getDatabase(), path), value);
-  pending.catch(() => {}); // a late answer is ignored
-  let timer;
-  const tooSlow = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('slow')), 4000); });
   try {
-    await Promise.race([pending, tooSlow]);
-  } catch (e) {
-    if (e.message !== 'slow') throw e;
-    sdkWritesSlow = true;
     await restPut(path, value);
-  } finally {
-    clearTimeout(timer);
+  } catch (e) {
+    if (e.refused) throw e;
+    await set(ref(getDatabase(), path), value);
   }
 };
 
@@ -515,12 +511,12 @@ export default function CustomerMenu() {
       // unlock secret: only the hash is stored; the secret goes into the emailed QR code
       const unlockToken = randomHex(16);
       const unlockHash = await sha256Hex(unlockToken);
-      await dbWrite(`orderLocks/${newOrderRef.key}`, { qrHash: unlockHash, timestamp });
+      const lockWrite = dbWrite(`orderLocks/${newOrderRef.key}`, { qrHash: unlockHash, timestamp });
 
       // secret tracking key: lets this customer (and nobody else) follow the order until it is served
       const trackKey = randomHex(16);
 
-      await dbWrite(`orders/${newOrderRef.key}`, {
+      const orderWrite = dbWrite(`orders/${newOrderRef.key}`, {
         tableName: tableName,
         items,
         total,
@@ -531,7 +527,7 @@ export default function CustomerMenu() {
       });
 
       // what the customer may see: only the status and their own items (no names, no email)
-      await dbWrite(`orderTracking/${trackKey}`, {
+      const trackWrite = dbWrite(`orderTracking/${trackKey}`, {
         status: 'PENDING',
         tableName,
         items: items.map(it => ({
@@ -544,6 +540,9 @@ export default function CustomerMenu() {
         timestamp,
         active: true,
       });
+
+      // the three writes are independent, so they run at the same time
+      await Promise.all([lockWrite, orderWrite, trackWrite]);
 
       // lock the table for everyone else (public flag only, no order details)
       try {
