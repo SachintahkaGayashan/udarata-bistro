@@ -74,6 +74,36 @@ function SiteImg({ src, fallback, ...props }) {
   return <img src={failed ? fallback : src} onError={() => setFailed(true)} {...props} />;
 }
 
+// Writes: normally through the Firebase SDK. On phones/networks where the live connection never answers
+// (the order would stay on 'Sending…' forever) the same write is sent as a plain HTTPS request instead.
+// The database rules apply exactly the same way to both.
+let sdkWritesSlow = false;
+const restPut = async (path, value) => {
+  const url = String(getDatabase().app.options.databaseURL || '').replace(/\/$/, '');
+  const r = await fetch(`${url}/${path}.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+  });
+  if (!r.ok) throw new Error(`Write failed (${r.status})`);
+};
+const dbWrite = async (path, value) => {
+  if (sdkWritesSlow) return restPut(path, value);
+  const pending = set(ref(getDatabase(), path), value);
+  pending.catch(() => {}); // a late answer is ignored
+  let timer;
+  const tooSlow = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('slow')), 4000); });
+  try {
+    await Promise.race([pending, tooSlow]);
+  } catch (e) {
+    if (e.message !== 'slow') throw e;
+    sdkWritesSlow = true;
+    await restPut(path, value);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Desserts', 'Beverages'];
 // old menu data may say 'Desert'; always show the correct spelling
 const catOf = (i) => (String(i.category || '').trim().toLowerCase() === 'desert' ? 'Desserts' : i.category);
@@ -331,22 +361,41 @@ export default function CustomerMenu() {
   const keyList = myKeys.map(x => x.k).join(',');
   useEffect(() => {
     const db = getDatabase();
-    const unsubs = keyList.split(',').filter(Boolean).map(k =>
+    const keys = keyList.split(',').filter(Boolean);
+    const live = {};
+    const apply = (k, v) => {
+      if (v) setMyData(p => ({ ...p, [k]: v }));
+      else { setMyData(p => ({ ...p, [k]: { ended: true } })); dropKey(k); }
+    };
+    const ended = (k) => {
+      // permission denied = the order was served (or the link is old): keep what we showed, mark it served
+      setMyData(p => ({ ...p, [k]: p[k] && !p[k].ended ? { ...p[k], status: 'SERVED' } : { ended: true } }));
+      dropKey(k);
+    };
+    const unsubs = keys.map(k =>
       onValue(
         ref(db, `orderTracking/${k}`),
-        (snap) => {
-          const v = snap.val();
-          if (v) setMyData(p => ({ ...p, [k]: v }));
-          else { setMyData(p => ({ ...p, [k]: { ended: true } })); dropKey(k); }
-        },
-        () => {
-          // permission denied = the order was served (or the link is old): keep what we showed, mark it served
-          setMyData(p => ({ ...p, [k]: p[k] && !p[k].ended ? { ...p[k], status: 'SERVED' } : { ended: true } }));
-          dropKey(k);
-        }
+        (snap) => { live[k] = true; apply(k, snap.val()); },
+        () => { live[k] = true; ended(k); }
       )
     );
-    return () => unsubs.forEach(u => u());
+    // backup for phones where the live connection never answers: poll over plain HTTPS
+    const dbUrl = String(db.app.options.databaseURL || '').replace(/\/$/, '');
+    const poll = () => keys.forEach(async (k) => {
+      if (live[k]) return;
+      try {
+        const r = await fetch(`${dbUrl}/orderTracking/${k}.json`);
+        if (live[k]) return;
+        if (r.status === 401 || r.status === 403) ended(k);
+        else if (r.ok) apply(k, await r.json());
+      } catch (e) { /* retried next time */ }
+    });
+    poll();
+    const timer = setInterval(() => {
+      if (keys.every(k => live[k])) { clearInterval(timer); return; }
+      poll();
+    }, 6000);
+    return () => { clearInterval(timer); unsubs.forEach(u => u()); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyList]);
 
@@ -466,12 +515,12 @@ export default function CustomerMenu() {
       // unlock secret: only the hash is stored; the secret goes into the emailed QR code
       const unlockToken = randomHex(16);
       const unlockHash = await sha256Hex(unlockToken);
-      await set(ref(db, `orderLocks/${newOrderRef.key}`), { qrHash: unlockHash, timestamp });
+      await dbWrite(`orderLocks/${newOrderRef.key}`, { qrHash: unlockHash, timestamp });
 
       // secret tracking key: lets this customer (and nobody else) follow the order until it is served
       const trackKey = randomHex(16);
 
-      await set(newOrderRef, {
+      await dbWrite(`orders/${newOrderRef.key}`, {
         tableName: tableName,
         items,
         total,
@@ -482,7 +531,7 @@ export default function CustomerMenu() {
       });
 
       // what the customer may see: only the status and their own items (no names, no email)
-      await set(ref(db, `orderTracking/${trackKey}`), {
+      await dbWrite(`orderTracking/${trackKey}`, {
         status: 'PENDING',
         tableName,
         items: items.map(it => ({
@@ -498,7 +547,7 @@ export default function CustomerMenu() {
 
       // lock the table for everyone else (public flag only, no order details)
       try {
-        await set(ref(db, `tableStatus/${tableName}`), { busy: true, since: timestamp, orderId: newOrderRef.key });
+        await dbWrite(`tableStatus/${tableName}`, { busy: true, since: timestamp, orderId: newOrderRef.key });
       } catch (lockErr) {
         console.error('Table lock error:', lockErr);
         setAlertMessage(`Your order was sent, but ${tableName} was just taken by another order. Please tell our staff.`);
@@ -575,7 +624,7 @@ export default function CustomerMenu() {
     try {
       const db = getDatabase();
       const newsletterRef = ref(db, 'newsletters');
-      await push(newsletterRef, {
+      await dbWrite(`newsletters/${push(newsletterRef).key}`, {
         email,
         dob: newsletterDob || 'Not provided',
         consentAt: Date.now(),
@@ -623,7 +672,7 @@ export default function CustomerMenu() {
     try {
       const db = getDatabase();
       const reviewsRef = ref(db, 'reviews');
-      await push(reviewsRef, {
+      await dbWrite(`reviews/${push(reviewsRef).key}`, {
         name: reviewerName.trim().slice(0, 40),
         comment: reviewComment.trim().slice(0, 500),
         rating: Math.min(5, Math.max(1, Number(reviewRating) || 5)),
