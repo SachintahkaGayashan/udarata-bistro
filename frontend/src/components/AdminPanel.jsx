@@ -10,6 +10,49 @@ import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// ---------- HTTPS (REST) helpers ----------
+// Some phone networks block or slow the Firebase live connection, which leaves the admin
+// pages empty. These helpers talk to the database over plain HTTPS instead, using the
+// admin's own login token, so the same security rules still apply.
+const dbBase = () => String(db.app.options.databaseURL || '').replace(/\/$/, '');
+
+async function restReq(method, path, body) {
+  const token = await auth.currentUser.getIdToken();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const url = `${dbBase()}/${path ? path : ''}.json?auth=${encodeURIComponent(token)}`;
+    const res = await fetch(url, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.http = res.status; // a real answer from the server (for example permission denied)
+      throw err;
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Write over HTTPS first; if the network itself fails, fall back to the normal Firebase connection.
+async function viaRest(restFn, sdkFn) {
+  try {
+    return await restFn();
+  } catch (err) {
+    if (err && err.http) throw err;
+    return await sdkFn();
+  }
+}
+const dbMultiUpdate = (updates) => viaRest(() => restReq('PATCH', '', updates), () => update(ref(db), updates));
+const dbPatch = (path, data) => viaRest(() => restReq('PATCH', path, data), () => update(ref(db, path), data));
+const dbPut = (path, data) => viaRest(() => restReq('PUT', path, data), () => set(ref(db, path), data));
+const dbRemove = (path) => viaRest(() => restReq('DELETE', path), () => remove(ref(db, path)));
+
 const TABLES = ['Table 01', 'Table 02', 'Table 03', 'Table 04', 'Table 05', 'Table 06'];
 const TAG_OPTIONS = ['veg', 'spicy', 'popular'];
 const DEFAULT_CATEGORIES = ['Mains', 'Appetizers', 'Beverages'];
@@ -826,73 +869,58 @@ export default function AdminPanel() {
   useEffect(() => {
     if (!user || !isAdmin) return;
 
-    const ordersRef = ref(db, 'orders');
-    const unsubscribeOrders = onValue(ordersRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setOrders(list.reverse());
-      } else {
-        setOrders([]);
-      }
-    });
+    const listFrom = (data) => (data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
+    // one place that knows how each database path is stored in React state
+    const handlers = {
+      orders: (data) => setOrders(listFrom(data).reverse()),
+      menu: (data) => setMenuItems(listFrom(data)),
+      'robotStatus/currentWeight': (w) => setRobotWeight(w !== null && w !== undefined ? Number(w) : 0),
+      tableStatus: (data) => setTableStatus(data || {}),
+      robotStatus: (data) => {
+        if (data) {
+          setRobotStatusData({
+            battery: data.battery || 0,
+            assignedTable: data.assignedTable || 'None',
+            location: data.location || 'Charging Dock',
+            roadblock: data.roadblock || false,
+            status: data.status || 'IDLE'
+          });
+        }
+      },
+      reviews: (data) => setReviews(listFrom(data).reverse()),
+      newsletters: (data) => setSubscribers(listFrom(data).reverse()),
+    };
 
-    const menuRef = ref(db, 'menu');
-    const unsubscribeMenu = onValue(menuRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setMenuItems(list);
-      } else {
-        setMenuItems([]);
-      }
-    });
+    let cancelled = false;
+    let sdkAlive = false; // becomes true once the live connection delivers anything
+    const unsubs = Object.keys(handlers).map((path) =>
+      onValue(
+        ref(db, path),
+        (snapshot) => { sdkAlive = true; handlers[path](snapshot.val()); },
+        (err) => console.error(`Live read failed for ${path}:`, err)
+      )
+    );
 
-    const weightRef = ref(db, 'robotStatus/currentWeight');
-    const unsubscribeWeight = onValue(weightRef, (snapshot) => {
-      const weight = snapshot.val();
-      setRobotWeight(weight !== null ? Number(weight) : 0);
-    });
-
-    const tableStatusRef = ref(db, 'tableStatus');
-    const unsubscribeTableStatus = onValue(tableStatusRef, (snapshot) => {
-      setTableStatus(snapshot.val() || {});
-    });
-
-    const robotStatusRef = ref(db, 'robotStatus');
-    const unsubscribeRobotStatus = onValue(robotStatusRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setRobotStatusData({
-          battery: data.battery || 0,
-          assignedTable: data.assignedTable || 'None',
-          location: data.location || 'Charging Dock',
-          roadblock: data.roadblock || false,
-          status: data.status || 'IDLE'
-        });
-      }
-    });
-
-    const reviewsRef = ref(db, 'reviews');
-    const unsubscribeReviews = onValue(reviewsRef, (snapshot) => {
-      const data = snapshot.val();
-      setReviews(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).reverse() : []);
-    });
-
-    const newslettersRef = ref(db, 'newsletters');
-    const unsubscribeNewsletters = onValue(newslettersRef, (snapshot) => {
-      const data = snapshot.val();
-      setSubscribers(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })).reverse() : []);
-    });
+    // HTTPS backup: if the live connection has not delivered by itself, load and refresh over HTTPS
+    const pollOnce = async () => {
+      if (cancelled || sdkAlive) return;
+      await Promise.all(Object.keys(handlers).map(async (path) => {
+        try {
+          const data = await restReq('GET', path);
+          if (!cancelled && !sdkAlive) handlers[path](data);
+        } catch (err) {
+          console.error(`HTTPS read failed for ${path}:`, err);
+        }
+      }));
+    };
+    const firstTimer = setTimeout(pollOnce, 2500);
+    const pollTimer = setInterval(pollOnce, 5000);
 
     return () => {
-      unsubscribeOrders();
-      unsubscribeMenu();
-      unsubscribeWeight();
-      unsubscribeRobotStatus();
-      unsubscribeTableStatus();
-      unsubscribeReviews();
-      unsubscribeNewsletters();
+      cancelled = true;
+      clearTimeout(firstTimer);
+      clearInterval(pollTimer);
+      unsubs.forEach((u) => u());
     };
   }, [user, isAdmin]);
 
@@ -956,7 +984,7 @@ export default function AdminPanel() {
         updates['robotStatus/status'] = ROBOT_DISPATCH_STATUS;
         updates['robotStatus/currentOrderId'] = order.id;
       }
-      await update(ref(db), updates);
+      await dbMultiUpdate(updates);
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to update order status.');
@@ -969,7 +997,7 @@ export default function AdminPanel() {
       const st = tableStatus[tableName] || {};
       const updates = { [`tableStatus/${tableName}/busy`]: false };
       if (st.orderId) updates[`orders/${st.orderId}/robotReturnedAt`] = Date.now();
-      await update(ref(db), updates);
+      await dbMultiUpdate(updates);
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to update the table.');
@@ -986,7 +1014,7 @@ export default function AdminPanel() {
         if (order.tableName && tableStatus[order.tableName]?.orderId === orderId) {
           updates[`tableStatus/${order.tableName}/busy`] = false;
         }
-        await update(ref(db), updates);
+        await dbMultiUpdate(updates);
       } catch (err) {
         console.error(err);
         setAlertMessage('Failed to delete order.');
@@ -1024,10 +1052,10 @@ export default function AdminPanel() {
 
     try {
       if (editingFood) {
-        await update(ref(db, `menu/${editingFood.id}`), payload);
+        await dbPatch(`menu/${editingFood.id}`, payload);
       } else {
-        const newFoodRef = push(ref(db, 'menu'));
-        await set(newFoodRef, payload);
+        const newKey = push(ref(db, 'menu')).key; // the key is made locally, no network needed
+        await dbPut(`menu/${newKey}`, payload);
       }
       setIsModalOpen(false);
       setEditingFood(null);
@@ -1041,7 +1069,7 @@ export default function AdminPanel() {
 
   const handleToggleSoldOut = async (item) => {
     try {
-      await update(ref(db, `menu/${item.id}`), { soldOut: !item.soldOut });
+      await dbPatch(`menu/${item.id}`, { soldOut: !item.soldOut });
     } catch (err) {
       console.error(err);
       setAlertMessage('Failed to update item.');
@@ -1051,7 +1079,7 @@ export default function AdminPanel() {
   const handleDeleteFood = async (id) => {
     if (window.confirm('Are you sure you want to delete this menu item?')) {
       try {
-        await remove(ref(db, `menu/${id}`));
+        await dbRemove(`menu/${id}`);
       } catch (err) {
         console.error(err);
         setAlertMessage('Failed to delete item.');
@@ -1062,7 +1090,7 @@ export default function AdminPanel() {
   const handleDeleteReview = async (id) => {
     if (window.confirm('Delete this review?')) {
       try {
-        await remove(ref(db, `reviews/${id}`));
+        await dbRemove(`reviews/${id}`);
       } catch (err) {
         console.error(err);
         setAlertMessage('Failed to delete review.');
@@ -1073,7 +1101,7 @@ export default function AdminPanel() {
   const handleDeleteSubscriber = async (id) => {
     if (window.confirm('Remove this subscriber?')) {
       try {
-        await remove(ref(db, `newsletters/${id}`));
+        await dbRemove(`newsletters/${id}`);
       } catch (err) {
         console.error(err);
         setAlertMessage('Failed to remove subscriber.');
